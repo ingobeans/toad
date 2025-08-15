@@ -1,5 +1,7 @@
 use std::collections::HashMap;
 
+use reqwest::Url;
+
 use crate::{
     css::parse_stylesheet,
     element::{get_element_type, Element, DEFAULT_ELEMENT_TYPE},
@@ -34,8 +36,9 @@ fn get_all_styles(element: &Element, buf: &mut String) {
         get_all_styles(child, buf);
     }
 }
+
 pub fn parse_html(text: &str) -> Option<Webpage> {
-    let mut buf: Vec<char> = text.chars().collect();
+    let mut buf: Vec<char> = text.trim().chars().collect();
     buf.reverse();
     let root = parse(&mut buf).pop();
     let mut title = None;
@@ -95,8 +98,10 @@ pub fn parse(buf: &mut Vec<char>) -> Vec<Element> {
                         buf.push(end);
                         continue;
                     }
-                    buf.pop();
-                    let value = pop_until(buf, &'"').iter().collect();
+                    let Some(quote_type) = buf.pop() else {
+                        continue;
+                    };
+                    let value = pop_until(buf, &quote_type).iter().collect();
 
                     let key = key.iter().collect();
                     attributes.insert(key, value);

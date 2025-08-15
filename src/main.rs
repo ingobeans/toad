@@ -1,8 +1,9 @@
 use crossterm::{cursor, event, execute, queue, style, terminal};
-use reqwest::Url;
+use reqwest::{Client, Url};
 use std::{
     collections::HashMap,
-    io::{self, stdout, Stdout, Write},
+    io::{self, stdout, Read, Stdout, Write},
+    str::FromStr,
 };
 
 use element::*;
@@ -133,11 +134,30 @@ impl GlobalDrawContext<'_> {
 struct Toad {
     tabs: Vec<Webpage>,
     tab_index: usize,
+    client: Client,
 }
 impl Toad {
-    fn run(&mut self) -> io::Result<()> {
+    fn new(tabs: Vec<Webpage>) -> Result<Self, reqwest::Error> {
+        let client = Client::builder()
+            .user_agent(format!(
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:141.0) Gecko/20100101 Firefox/141.0"
+            ))
+            .build()?;
+        Ok(Self {
+            tabs,
+            tab_index: 0,
+            client,
+        })
+    }
+    async fn get_url(&self, url: Url) -> Option<Webpage> {
+        let response = self.client.get(url).send().await.ok()?;
+        let data = response.text().await.ok()?;
+        parse_html(&data)
+    }
+    async fn run(&mut self) -> io::Result<()> {
         let mut running = true;
-        self.draw()?;
+        let mut stdout = stdout();
+        self.draw(&stdout)?;
         terminal::enable_raw_mode()?;
         while running {
             let event = event::read()?;
@@ -149,31 +169,51 @@ impl Toad {
             };
             match key.code {
                 event::KeyCode::Enter => {
-                    self.draw()?;
+                    self.draw(&stdout)?;
                 }
                 event::KeyCode::Tab => {
                     self.tab_index += 1;
                     if self.tab_index >= self.tabs.len() {
                         self.tab_index = 0;
                     }
-                    self.draw()?;
+                    self.draw(&stdout)?;
                 }
                 event::KeyCode::Char(char) => {
                     if char == 'q' {
                         running = false;
+                    }
+                    if char == 'g' {
+                        terminal::disable_raw_mode()?;
+                        execute!(
+                            stdout,
+                            cursor::MoveTo(0, 0),
+                            terminal::Clear(terminal::ClearType::CurrentLine),
+                            cursor::Show
+                        )?;
+                        let mut buf = String::new();
+                        io::stdin().read_line(&mut buf)?;
+                        terminal::enable_raw_mode()?;
+                        if let Ok(url) = Url::from_str(&buf) {
+                            if let Some(page) = self.get_url(url).await {
+                                self.tab_index += 1;
+                                self.tabs.insert(self.tab_index, page);
+                            }
+                        }
+
+                        self.draw(&stdout)?;
                     }
                 }
                 _ => {}
             }
         }
         terminal::disable_raw_mode()?;
+        execute!(stdout, cursor::Show)?;
         Ok(())
     }
-    fn draw(&self) -> io::Result<()> {
-        let stdout = stdout();
-        self.clear_screen(&stdout)?;
-        self.draw_topbar(&stdout)?;
-        self.draw_current_page(&stdout)
+    fn draw(&self, stdout: &Stdout) -> io::Result<()> {
+        self.clear_screen(stdout)?;
+        self.draw_topbar(stdout)?;
+        self.draw_current_page(stdout)
     }
     fn draw_topbar(&self, mut stdout: &Stdout) -> io::Result<()> {
         queue!(
@@ -206,7 +246,8 @@ impl Toad {
         queue!(
             stdout,
             terminal::Clear(terminal::ClearType::All),
-            cursor::MoveTo(0, 0)
+            cursor::MoveTo(0, 0),
+            cursor::Hide,
         )
     }
     fn draw_current_page(&self, mut stdout: &Stdout) -> io::Result<()> {
@@ -234,13 +275,13 @@ impl Toad {
         execute!(stdout, style::ResetColor)
     }
 }
-fn main() -> io::Result<()> {
-    let mut toad = Toad {
-        tabs: vec![
-            parse_html(include_str!("home.html")).unwrap(),
-            parse_html(include_str!("test.html")).unwrap(),
-        ],
-        tab_index: 0,
-    };
-    toad.run()
+
+#[tokio::main]
+async fn main() -> io::Result<()> {
+    let mut toad = Toad::new(vec![
+        parse_html(include_str!("home.html")).unwrap(),
+        parse_html(include_str!("test.html")).unwrap(),
+    ])
+    .unwrap();
+    toad.run().await
 }

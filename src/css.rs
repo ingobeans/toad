@@ -131,7 +131,6 @@ pub fn parse_stylesheet(text: &str, style: &mut HashMap<StyleTarget, ElementDraw
             let Some(char) = specifier.chars().next() else {
                 continue;
             };
-            println!("{specifier}");
             let target = if char == '#' {
                 StyleTarget::Id(specifier[1..].to_string())
             } else if char == '.' {

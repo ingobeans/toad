@@ -105,6 +105,10 @@ pub static ELEMENT_TYPES: &[ElementType] = &[
         ..DEFAULT_ELEMENT_TYPE
     },
     ElementType {
+        name: "a",
+        ..DEFAULT_ELEMENT_TYPE
+    },
+    ElementType {
         name: "div",
         draw_ctx: ElementDrawContext {
             display: Some(Display::Block),

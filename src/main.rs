@@ -57,13 +57,21 @@ impl Toad {
             .draw(ElementDrawContext {}, &mut ctx)
     }
 }
+#[cfg(test)]
+mod tests {
+    use crate::parsing::parse_html;
+
+    #[test]
+    fn print_test() {
+        let test_page = parse_html(include_str!("test.html")).unwrap();
+        println!("{:?}", test_page.root);
+    }
+}
 fn main() -> io::Result<()> {
     let test_page = parse_html(include_str!("test.html")).unwrap();
-    println!("{:?}", test_page.root);
-    Ok(())
-    // let toad = Toad {
-    //     tabs: vec![test_page],
-    //     tab_index: 0,
-    // };
-    // toad.draw()
+    let toad = Toad {
+        tabs: vec![test_page],
+        tab_index: 0,
+    };
+    toad.draw()
 }

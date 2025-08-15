@@ -147,7 +147,7 @@ impl Toad {
             terminal::Clear(terminal::ClearType::CurrentLine),
         )?;
         if let Some(title) = &tab.title {
-            print!("{}", title.trim());
+            print!("[{}]", title.trim());
         }
         queue!(stdout, style::ResetColor)?;
         Ok(())

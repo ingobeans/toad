@@ -1,4 +1,5 @@
 use std::{
+    collections::HashMap,
     fmt::Debug,
     io::{self, Write},
 };
@@ -27,6 +28,23 @@ pub static ELEMENT_TYPES: &[ElementType] = &[
     },
     ElementType {
         name: "html",
+        ..DEFAULT_ELEMENT_TYPE
+    },
+    ElementType {
+        name: "head",
+        ..DEFAULT_ELEMENT_TYPE
+    },
+    ElementType {
+        name: "body",
+        ..DEFAULT_ELEMENT_TYPE
+    },
+    ElementType {
+        name: "link",
+        ..DEFAULT_ELEMENT_TYPE
+    },
+    ElementType {
+        name: "title",
+        stops_parsing: true,
         ..DEFAULT_ELEMENT_TYPE
     },
     ElementType {
@@ -60,6 +78,7 @@ pub fn get_element_type(name: &str) -> Option<&'static ElementType> {
 pub struct Element {
     pub ty: &'static ElementType,
     pub children: Vec<Element>,
+    pub attributes: HashMap<String, String>,
     pub text: Option<String>,
 }
 impl Debug for Element {
@@ -81,8 +100,12 @@ impl Element {
             }
         };
         let padding = "\t".repeat(index);
+        let mut attributes = String::new();
+        for (k, v) in &self.attributes {
+            attributes += &format!(" {k}=\"{v}\"");
+        }
         format!(
-            "\n{padding}<{}>\n{padding}{}\n{padding}</{}>",
+            "\n{padding}<{}{attributes}>\n{padding}{}\n{padding}</{}>",
             self.ty.name, children_text, self.ty.name
         )
     }
@@ -91,6 +114,9 @@ impl Element {
         element_draw_ctx: ElementDrawContext,
         global_ctx: &mut GlobalDrawContext,
     ) -> io::Result<()> {
+        if self.ty.stops_parsing {
+            return Ok(());
+        }
         if let Some(text) = &self.text {
             if global_ctx.x != global_ctx.actual_cursor_x
                 || global_ctx.y != global_ctx.actual_cursor_y
@@ -100,7 +126,7 @@ impl Element {
                     cursor::MoveTo(global_ctx.x, global_ctx.y)
                 )?
             }
-            global_ctx.stdout.lock().write_all(text.as_bytes())?;
+            global_ctx.stdout.lock().write_all(text.trim().as_bytes())?;
             global_ctx.x += text.len() as u16;
             global_ctx.actual_cursor_x = global_ctx.x;
             global_ctx.actual_cursor_y = global_ctx.y;

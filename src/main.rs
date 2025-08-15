@@ -12,7 +12,7 @@ mod parsing;
 struct Webpage {
     title: Option<String>,
     url: Option<Url>,
-    body: Option<Element>,
+    root: Option<Element>,
 }
 #[derive(Clone, Copy)]
 struct ElementDrawContext {}
@@ -51,14 +51,16 @@ impl Toad {
             actual_cursor_y: 0,
             stdout,
         };
-        tab.body
+        tab.root
             .as_ref()
             .unwrap()
             .draw(ElementDrawContext {}, &mut ctx)
     }
 }
 fn main() -> io::Result<()> {
-    let test_page = parse_html("<html><p>hiwdy</p><p>there</p></html>").unwrap();
+    let test_page = parse_html(include_str!("test.html")).unwrap();
+    // println!("{:?}", test_page.root);
+    // Ok(())
     let toad = Toad {
         tabs: vec![test_page],
         tab_index: 0,

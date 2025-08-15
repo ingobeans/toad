@@ -8,6 +8,7 @@ use parsing::*;
 mod element;
 mod parsing;
 
+#[expect(dead_code)]
 #[derive(Default)]
 struct Webpage {
     title: Option<String>,
@@ -21,6 +22,7 @@ struct GlobalDrawContext<'a> {
     y: u16,
     actual_cursor_x: u16,
     actual_cursor_y: u16,
+    on_newline: bool,
     stdout: &'a Stdout,
 }
 struct Toad {
@@ -49,6 +51,7 @@ impl Toad {
             y,
             actual_cursor_x: 0,
             actual_cursor_y: 0,
+            on_newline: true,
             stdout,
         };
         tab.root

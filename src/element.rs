@@ -99,6 +99,29 @@ pub static ELEMENT_TYPES: &[ElementType] = &[
 pub fn get_element_type(name: &str) -> Option<&'static ElementType> {
     ELEMENT_TYPES.iter().find(|f| f.name == name)
 }
+/// Removes repeated whitespace and newlines
+fn disrespect_whitespace(text: &str) -> String {
+    let text = text.replace("\n", "");
+    let mut new = String::new();
+    let mut last = None;
+    for char in text.chars() {
+        if char.is_whitespace() {
+            if let Some(last_char) = last {
+                if last_char == char {
+                    continue;
+                }
+            }
+            last = Some(char);
+        } else {
+            last = None;
+        }
+        new.push(char);
+    }
+    new
+}
+fn is_whitespace(text: &str) -> bool {
+    text.chars().all(|c| c.is_whitespace())
+}
 pub struct Element {
     pub ty: &'static ElementType,
     pub children: Vec<Element>,
@@ -117,8 +140,8 @@ impl Element {
             None => {
                 let mut children_text = String::new();
                 for child in &self.children {
-                    children_text += &child.print_recursive(index + 1);
                     children_text += "\n";
+                    children_text += &child.print_recursive(index + 1);
                 }
                 children_text
             }
@@ -128,8 +151,12 @@ impl Element {
         for (k, v) in &self.attributes {
             attributes += &format!(" {k}=\"{v}\"");
         }
+        let mut maybe_newline = format!("\n{padding}");
+        if !children_text.contains("\n") {
+            maybe_newline = String::new();
+        }
         format!(
-            "\n{padding}<{}{attributes}>\n{padding}{}\n{padding}</{}>",
+            "\n{padding}<{}{attributes}>{}{maybe_newline}</{}>",
             self.ty.name, children_text, self.ty.name
         )
     }
@@ -141,19 +168,35 @@ impl Element {
         if self.ty.stops_parsing {
             return Ok(());
         }
+        if self.ty.needs_linebreak && !global_ctx.on_newline {
+            global_ctx.y += 1;
+            global_ctx.x = 0;
+            global_ctx.on_newline = true;
+        }
         if let Some(text) = &self.text {
-            if global_ctx.x != global_ctx.actual_cursor_x
-                || global_ctx.y != global_ctx.actual_cursor_y
-            {
-                queue!(
-                    global_ctx.stdout,
-                    cursor::MoveTo(global_ctx.x, global_ctx.y)
-                )?
+            if !is_whitespace(text) || self.ty.respect_whitespace {
+                if global_ctx.x != global_ctx.actual_cursor_x
+                    || global_ctx.y != global_ctx.actual_cursor_y
+                {
+                    queue!(
+                        global_ctx.stdout,
+                        cursor::MoveTo(global_ctx.x, global_ctx.y)
+                    )?
+                }
+                let text = if self.ty.respect_whitespace {
+                    text.clone()
+                } else {
+                    disrespect_whitespace(text)
+                };
+                global_ctx.stdout.lock().write_all(text.as_bytes())?;
+                let text_len = text.len() as u16;
+                global_ctx.x += text_len;
+                global_ctx.actual_cursor_x = global_ctx.x;
+                global_ctx.actual_cursor_y = global_ctx.y;
+                if text_len > 0 {
+                    global_ctx.on_newline = false;
+                }
             }
-            global_ctx.stdout.lock().write_all(text.trim().as_bytes())?;
-            global_ctx.x += text.len() as u16;
-            global_ctx.actual_cursor_x = global_ctx.x;
-            global_ctx.actual_cursor_y = global_ctx.y;
         }
         for child in self.children.iter() {
             child.draw(element_draw_ctx, global_ctx)?;
@@ -161,6 +204,7 @@ impl Element {
         if self.ty.needs_linebreak {
             global_ctx.y += 1;
             global_ctx.x = 0;
+            global_ctx.on_newline = true;
         }
         Ok(())
     }

@@ -26,6 +26,7 @@ enum TextAlignment {
 enum Display {
     Inline,
     Block,
+    None,
 }
 #[derive(Clone, Copy, PartialEq)]
 struct ElementDrawContext {

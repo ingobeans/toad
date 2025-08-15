@@ -256,7 +256,7 @@ impl Element {
         mut element_draw_ctx: ElementDrawContext,
         global_ctx: &mut GlobalDrawContext,
     ) -> io::Result<()> {
-        if self.ty.stops_parsing {
+        if self.ty.stops_parsing || matches!(self.style.display, Some(Display::None)) {
             return Ok(());
         }
         element_draw_ctx.merge(&self.style);

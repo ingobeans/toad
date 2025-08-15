@@ -71,6 +71,7 @@ fn parse_display_mode(text: &str) -> Option<Display> {
     match text.to_lowercase().trim() {
         "block" => Some(Display::Block),
         "inline" => Some(Display::Inline),
+        "none" => Some(Display::None),
         _ => None,
     }
 }

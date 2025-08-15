@@ -1,11 +1,11 @@
 use std::{
     collections::HashMap,
     fmt::Debug,
-    io::{self, Stdout, Write},
+    io::{self, Stdout},
 };
 
 use crate::{ElementDrawContext, GlobalDrawContext, TextAlignment};
-use crossterm::{cursor, queue, style};
+use crossterm::{queue, style};
 
 const RED: style::Color = style::Color::Red;
 
@@ -156,7 +156,7 @@ fn disrespect_whitespace(text: &str) -> String {
 fn is_whitespace(text: &str) -> bool {
     text.chars().all(|c| c.is_whitespace())
 }
-fn apply_draw_ctx(
+pub fn apply_draw_ctx(
     draw_ctx: ElementDrawContext,
     old_ctx: &mut ElementDrawContext,
     mut stdout: &Stdout,
@@ -244,41 +244,18 @@ impl Element {
         }
         element_draw_ctx.merge(&self.ty.draw_ctx);
 
-        if self.ty.needs_linebreak && !global_ctx.on_newline {
+        if self.ty.needs_linebreak && global_ctx.x != 0 {
             global_ctx.y += 1;
             global_ctx.x = 0;
-            global_ctx.on_newline = true;
         }
         if let Some(text) = &self.text {
             if !is_whitespace(text) || element_draw_ctx.respect_whitespace {
-                if global_ctx.x != global_ctx.actual_cursor_x
-                    || global_ctx.y != global_ctx.actual_cursor_y
-                {
-                    queue!(
-                        global_ctx.stdout,
-                        cursor::MoveTo(global_ctx.x, global_ctx.y)
-                    )?
-                }
                 let text = if element_draw_ctx.respect_whitespace {
                     text.clone()
                 } else {
                     disrespect_whitespace(text)
                 };
-                apply_draw_ctx(
-                    element_draw_ctx,
-                    &mut global_ctx.last_draw_ctx,
-                    global_ctx.stdout,
-                )?;
-                global_ctx.stdout.lock().write_all(text.as_bytes())?;
-                let text_len = text.len() as u16;
-                let lines = (text.lines().count() as u16).saturating_sub(1);
-                global_ctx.x += text_len;
-                global_ctx.y += lines;
-                global_ctx.actual_cursor_x = global_ctx.x;
-                global_ctx.actual_cursor_y = global_ctx.y;
-                if text_len > 0 {
-                    global_ctx.on_newline = false;
-                }
+                global_ctx.draw_text(&text, element_draw_ctx)?;
             }
         }
         for child in self.children.iter() {
@@ -287,7 +264,6 @@ impl Element {
         if self.ty.needs_linebreak {
             global_ctx.y += 1;
             global_ctx.x = 0;
-            global_ctx.on_newline = true;
         }
         Ok(())
     }

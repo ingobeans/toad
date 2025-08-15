@@ -1,6 +1,6 @@
 use crossterm::{cursor, queue, style, terminal};
 use reqwest::Url;
-use std::io::{self, Stdout, stdout};
+use std::io::{self, Stdout, Write, stdout};
 
 use element::*;
 use parsing::*;
@@ -15,6 +15,7 @@ struct Webpage {
     url: Option<Url>,
     root: Option<Element>,
 }
+#[expect(dead_code)]
 #[derive(Clone, Copy, PartialEq)]
 enum TextAlignment {
     Left,
@@ -38,15 +39,51 @@ impl ElementDrawContext {
         self.respect_whitespace |= other.respect_whitespace;
     }
 }
+#[expect(dead_code)]
 #[derive(Clone)]
 struct GlobalDrawContext<'a> {
+    width: u16,
+    height: u16,
     x: u16,
     y: u16,
     actual_cursor_x: u16,
     actual_cursor_y: u16,
-    on_newline: bool,
     stdout: &'a Stdout,
     last_draw_ctx: ElementDrawContext,
+}
+impl GlobalDrawContext<'_> {
+    fn draw_line(&mut self, text: &str, draw_ctx: ElementDrawContext) -> io::Result<()> {
+        let text_len = text.len() as u16;
+        let offset_x = match draw_ctx.text_align {
+            Some(TextAlignment::Centre) => (self.width - self.x) / 2 - text_len / 2,
+            Some(TextAlignment::Right) => self.width - text_len,
+            _ => 0,
+        };
+        self.x += offset_x;
+
+        if self.x != self.actual_cursor_x || self.y != self.actual_cursor_y {
+            queue!(self.stdout, cursor::MoveTo(self.x, self.y))?
+        }
+        apply_draw_ctx(draw_ctx, &mut self.last_draw_ctx, self.stdout)?;
+        self.stdout.lock().write_all(text.as_bytes())?;
+        self.x += text_len;
+        self.actual_cursor_x = self.x;
+        self.actual_cursor_y = self.y;
+
+        Ok(())
+    }
+    fn draw_text(&mut self, text: &str, draw_ctx: ElementDrawContext) -> io::Result<()> {
+        let start_x = self.x;
+        let mut lines = text.lines().peekable();
+        while let Some(line) = lines.next() {
+            self.draw_line(line, draw_ctx)?;
+            if lines.peek().is_some() {
+                self.x = start_x;
+                self.y += 1;
+            }
+        }
+        Ok(())
+    }
 }
 struct Toad {
     tabs: Vec<Webpage>,
@@ -69,12 +106,14 @@ impl Toad {
         let Some(tab) = self.tabs.get(self.tab_index) else {
             return Ok(());
         };
+        let (width, height) = terminal::size()?;
         let mut ctx = GlobalDrawContext {
+            width,
+            height,
             x,
             y,
             actual_cursor_x: 0,
             actual_cursor_y: 0,
-            on_newline: true,
             stdout,
             last_draw_ctx: DEFAULT_DRAW_CTX,
         };

@@ -1,4 +1,4 @@
-use crossterm::{cursor, queue, terminal};
+use crossterm::{cursor, queue, style, terminal};
 use reqwest::Url;
 use std::io::{self, Stdout, stdout};
 
@@ -15,10 +15,30 @@ struct Webpage {
     url: Option<Url>,
     root: Option<Element>,
 }
-#[derive(Clone, Copy, Default)]
+#[derive(Clone, Copy, PartialEq)]
+enum TextAlignment {
+    Left,
+    Centre,
+    Right,
+}
+#[derive(Clone, Copy, PartialEq)]
 struct ElementDrawContext {
+    text_align: Option<TextAlignment>,
+    foreground_color: Option<style::Color>,
+    bold: bool,
+    italics: bool,
     respect_whitespace: bool,
 }
+impl ElementDrawContext {
+    fn merge(&mut self, other: &ElementDrawContext) {
+        self.text_align = other.text_align.or(self.text_align);
+        self.foreground_color = other.foreground_color.or(self.foreground_color);
+        self.bold |= other.bold;
+        self.italics |= other.italics;
+        self.respect_whitespace |= other.respect_whitespace;
+    }
+}
+#[derive(Clone)]
 struct GlobalDrawContext<'a> {
     x: u16,
     y: u16,
@@ -26,6 +46,7 @@ struct GlobalDrawContext<'a> {
     actual_cursor_y: u16,
     on_newline: bool,
     stdout: &'a Stdout,
+    last_draw_ctx: ElementDrawContext,
 }
 struct Toad {
     tabs: Vec<Webpage>,
@@ -55,11 +76,9 @@ impl Toad {
             actual_cursor_y: 0,
             on_newline: true,
             stdout,
+            last_draw_ctx: DEFAULT_DRAW_CTX,
         };
-        tab.root
-            .as_ref()
-            .unwrap()
-            .draw(ElementDrawContext::default(), &mut ctx)
+        tab.root.as_ref().unwrap().draw(DEFAULT_DRAW_CTX, &mut ctx)
     }
 }
 #[cfg(test)]

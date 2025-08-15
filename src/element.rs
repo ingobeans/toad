@@ -1,28 +1,47 @@
 use std::{
     collections::HashMap,
     fmt::Debug,
-    io::{self, Write},
+    io::{self, Stdout, Write},
 };
 
-use crossterm::{cursor, queue};
+use crate::{ElementDrawContext, GlobalDrawContext, TextAlignment};
+use crossterm::{cursor, queue, style};
 
-use crate::{ElementDrawContext, GlobalDrawContext};
+const RED: style::Color = style::Color::Red;
 
 #[derive(Clone, Copy, PartialEq)]
 pub struct ElementType {
     pub name: &'static str,
     pub stops_parsing: bool,
     pub needs_linebreak: bool,
-    pub respect_whitespace: bool,
     /// Element that has no closing tag, such as <img>
     pub void_element: bool,
+    pub draw_ctx: ElementDrawContext,
 }
+pub static DEFAULT_DRAW_CTX: ElementDrawContext = ElementDrawContext {
+    text_align: None,
+    foreground_color: None,
+    bold: false,
+    italics: false,
+    respect_whitespace: false,
+};
 pub static DEFAULT_ELEMENT_TYPE: ElementType = ElementType {
     name: "unknown",
     stops_parsing: false,
     needs_linebreak: false,
-    respect_whitespace: false,
     void_element: false,
+    draw_ctx: DEFAULT_DRAW_CTX,
+};
+static H1: ElementType = ElementType {
+    name: "h1",
+    needs_linebreak: true,
+    draw_ctx: ElementDrawContext {
+        bold: true,
+        foreground_color: Some(RED),
+        text_align: Some(TextAlignment::Centre),
+        ..DEFAULT_DRAW_CTX
+    },
+    ..DEFAULT_ELEMENT_TYPE
 };
 pub static ELEMENT_TYPES: &[ElementType] = &[
     ElementType {
@@ -74,7 +93,10 @@ pub static ELEMENT_TYPES: &[ElementType] = &[
     ElementType {
         name: "pre",
         needs_linebreak: true,
-        respect_whitespace: true,
+        draw_ctx: ElementDrawContext {
+            respect_whitespace: true,
+            ..DEFAULT_DRAW_CTX
+        },
         ..DEFAULT_ELEMENT_TYPE
     },
     ElementType {
@@ -101,6 +123,12 @@ pub static ELEMENT_TYPES: &[ElementType] = &[
         stops_parsing: true,
         ..DEFAULT_ELEMENT_TYPE
     },
+    H1,
+    ElementType { name: "h2", ..H1 },
+    ElementType { name: "h3", ..H1 },
+    ElementType { name: "h4", ..H1 },
+    ElementType { name: "h5", ..H1 },
+    ElementType { name: "h6", ..H1 },
 ];
 pub fn get_element_type(name: &str) -> Option<&'static ElementType> {
     ELEMENT_TYPES.iter().find(|f| f.name == name)
@@ -127,6 +155,46 @@ fn disrespect_whitespace(text: &str) -> String {
 }
 fn is_whitespace(text: &str) -> bool {
     text.chars().all(|c| c.is_whitespace())
+}
+fn apply_draw_ctx(
+    draw_ctx: ElementDrawContext,
+    old_ctx: &mut ElementDrawContext,
+    mut stdout: &Stdout,
+) -> io::Result<()> {
+    let needs_clearing = (!draw_ctx.bold && old_ctx.bold)
+        || (!draw_ctx.italics && old_ctx.italics)
+        || (draw_ctx.foreground_color.is_none() && old_ctx.foreground_color.is_some());
+
+    if needs_clearing {
+        queue!(stdout, style::ResetColor)?;
+        old_ctx.bold = false;
+        old_ctx.italics = false;
+        old_ctx.foreground_color = None;
+    }
+
+    if draw_ctx.bold != old_ctx.bold {
+        if draw_ctx.bold {
+            queue!(stdout, style::SetAttribute(style::Attribute::Bold))?
+        }
+    }
+    if draw_ctx.italics != old_ctx.italics {
+        if draw_ctx.italics {
+            queue!(stdout, style::SetAttribute(style::Attribute::Italic))?
+        }
+    }
+    if draw_ctx
+        .foreground_color
+        .is_some_and(|color| old_ctx.foreground_color.is_none_or(|old| old != color))
+    {
+        queue!(
+            stdout,
+            style::SetForegroundColor(draw_ctx.foreground_color.unwrap())
+        )?;
+    }
+
+    old_ctx.bold = draw_ctx.bold;
+    old_ctx.italics = draw_ctx.italics;
+    Ok(())
 }
 pub struct Element {
     pub ty: &'static ElementType,
@@ -174,7 +242,8 @@ impl Element {
         if self.ty.stops_parsing {
             return Ok(());
         }
-        element_draw_ctx.respect_whitespace |= self.ty.respect_whitespace;
+        element_draw_ctx.merge(&self.ty.draw_ctx);
+
         if self.ty.needs_linebreak && !global_ctx.on_newline {
             global_ctx.y += 1;
             global_ctx.x = 0;
@@ -195,6 +264,11 @@ impl Element {
                 } else {
                     disrespect_whitespace(text)
                 };
+                apply_draw_ctx(
+                    element_draw_ctx,
+                    &mut global_ctx.last_draw_ctx,
+                    global_ctx.stdout,
+                )?;
                 global_ctx.stdout.lock().write_all(text.as_bytes())?;
                 let text_len = text.len() as u16;
                 let lines = (text.lines().count() as u16).saturating_sub(1);

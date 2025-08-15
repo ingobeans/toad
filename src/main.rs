@@ -113,6 +113,18 @@ impl Toad {
         self.clear_screen(&stdout)?;
         self.draw_current_page(&stdout, 0, 2)
     }
+    fn draw_topbar(&self, mut stdout: &Stdout, tab: &Webpage) -> io::Result<()> {
+        queue!(
+            stdout,
+            style::SetBackgroundColor(style::Color::Grey),
+            terminal::Clear(terminal::ClearType::UntilNewLine),
+        )?;
+        if let Some(title) = &tab.title {
+            print!("{}", title);
+        }
+        queue!(stdout, style::ResetColor)?;
+        Ok(())
+    }
     fn clear_screen(&self, mut stdout: &Stdout) -> io::Result<()> {
         queue!(
             stdout,
@@ -124,6 +136,7 @@ impl Toad {
         let Some(tab) = self.tabs.get(self.tab_index) else {
             return Ok(());
         };
+        self.draw_topbar(stdout, tab)?;
         let (width, height) = terminal::size()?;
         let mut ctx = GlobalDrawContext {
             width,

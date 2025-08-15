@@ -10,12 +10,29 @@ enum ParseState {
     WaitingForElement,
 }
 
+fn find_title(element: &Element) -> Option<&Element> {
+    if element.ty.name == "title" {
+        return Some(element);
+    }
+    for child in element.children.iter() {
+        let title = find_title(child);
+        if title.is_some() {
+            return title;
+        }
+    }
+    None
+}
+
 pub fn parse_html(text: &str) -> Option<Webpage> {
     let mut buf: Vec<char> = text.chars().collect();
     buf.reverse();
     let root = parse(&mut buf).pop();
+    let mut title = None;
+    if let Some(root) = &root {
+        title = find_title(root).map(|element| element.text.clone().unwrap());
+    }
     root.map(|root| Webpage {
-        title: None,
+        title,
         url: None,
         root: Some(root),
     })

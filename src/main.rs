@@ -15,8 +15,10 @@ struct Webpage {
     url: Option<Url>,
     root: Option<Element>,
 }
-#[derive(Clone, Copy)]
-struct ElementDrawContext {}
+#[derive(Clone, Copy, Default)]
+struct ElementDrawContext {
+    respect_whitespace: bool,
+}
 struct GlobalDrawContext<'a> {
     x: u16,
     y: u16,
@@ -57,7 +59,7 @@ impl Toad {
         tab.root
             .as_ref()
             .unwrap()
-            .draw(ElementDrawContext {}, &mut ctx)
+            .draw(ElementDrawContext::default(), &mut ctx)
     }
 }
 #[cfg(test)]

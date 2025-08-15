@@ -72,6 +72,12 @@ pub static ELEMENT_TYPES: &[ElementType] = &[
         ..DEFAULT_ELEMENT_TYPE
     },
     ElementType {
+        name: "pre",
+        needs_linebreak: true,
+        respect_whitespace: true,
+        ..DEFAULT_ELEMENT_TYPE
+    },
+    ElementType {
         name: "p",
         needs_linebreak: true,
         ..DEFAULT_ELEMENT_TYPE
@@ -101,7 +107,7 @@ pub fn get_element_type(name: &str) -> Option<&'static ElementType> {
 }
 /// Removes repeated whitespace and newlines
 fn disrespect_whitespace(text: &str) -> String {
-    let text = text.replace("\n", "");
+    let text = text.replace("\n", "").replace("\r", "");
     let mut new = String::new();
     let mut last = None;
     for char in text.chars() {
@@ -162,19 +168,20 @@ impl Element {
     }
     pub fn draw(
         &self,
-        element_draw_ctx: ElementDrawContext,
+        mut element_draw_ctx: ElementDrawContext,
         global_ctx: &mut GlobalDrawContext,
     ) -> io::Result<()> {
         if self.ty.stops_parsing {
             return Ok(());
         }
+        element_draw_ctx.respect_whitespace |= self.ty.respect_whitespace;
         if self.ty.needs_linebreak && !global_ctx.on_newline {
             global_ctx.y += 1;
             global_ctx.x = 0;
             global_ctx.on_newline = true;
         }
         if let Some(text) = &self.text {
-            if !is_whitespace(text) || self.ty.respect_whitespace {
+            if !is_whitespace(text) || element_draw_ctx.respect_whitespace {
                 if global_ctx.x != global_ctx.actual_cursor_x
                     || global_ctx.y != global_ctx.actual_cursor_y
                 {
@@ -183,14 +190,16 @@ impl Element {
                         cursor::MoveTo(global_ctx.x, global_ctx.y)
                     )?
                 }
-                let text = if self.ty.respect_whitespace {
+                let text = if element_draw_ctx.respect_whitespace {
                     text.clone()
                 } else {
                     disrespect_whitespace(text)
                 };
                 global_ctx.stdout.lock().write_all(text.as_bytes())?;
                 let text_len = text.len() as u16;
+                let lines = (text.lines().count() as u16).saturating_sub(1);
                 global_ctx.x += text_len;
+                global_ctx.y += lines;
                 global_ctx.actual_cursor_x = global_ctx.x;
                 global_ctx.actual_cursor_y = global_ctx.y;
                 if text_len > 0 {

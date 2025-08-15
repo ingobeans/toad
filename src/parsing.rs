@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 
 use crate::{
+    element::{get_element_type, Element, DEFAULT_ELEMENT_TYPE},
     Webpage,
-    element::{DEFAULT_ELEMENT_TYPE, Element, get_element_type},
 };
 
 enum ParseState {
@@ -82,12 +82,9 @@ pub fn parse(buf: &mut Vec<char>) -> Vec<Element> {
             ParseState::InElementType(name, attributes) => {
                 if char == '>' {
                     if let ParseState::InElementType(name, attributes) = state {
-                        let mut element = Element {
-                            ty: get_element_type(&name).unwrap_or(&DEFAULT_ELEMENT_TYPE),
-                            children: Vec::new(),
-                            attributes,
-                            text: None,
-                        };
+                        let mut element =
+                            Element::new(get_element_type(&name).unwrap_or(&DEFAULT_ELEMENT_TYPE));
+                        element.set_attributes(attributes);
                         if !element.ty.void_element && !element.ty.stops_parsing {
                             element.children = parse(buf);
                         } else if element.ty.stops_parsing {
@@ -102,12 +99,9 @@ pub fn parse(buf: &mut Vec<char>) -> Vec<Element> {
                 } else if char == '/' {
                     buf.pop();
                     if let ParseState::InElementType(name, attributes) = state {
-                        let element = Element {
-                            ty: get_element_type(&name).unwrap_or(&DEFAULT_ELEMENT_TYPE),
-                            children: Vec::new(),
-                            attributes,
-                            text: None,
-                        };
+                        let mut element =
+                            Element::new(get_element_type(&name).unwrap_or(&DEFAULT_ELEMENT_TYPE));
+                        element.set_attributes(attributes);
                         elements.push(element);
                         state = ParseState::WaitingForElement;
                     }
@@ -149,12 +143,9 @@ pub fn parse(buf: &mut Vec<char>) -> Vec<Element> {
                 if let Some(Some(text)) = elements.last_mut().map(|f| &mut f.text) {
                     text.push(char);
                 } else {
-                    elements.push(Element {
-                        ty: get_element_type("node").unwrap(),
-                        children: Vec::new(),
-                        attributes: HashMap::new(),
-                        text: Some(String::from(char)),
-                    });
+                    let mut element = Element::new(get_element_type("node").unwrap());
+                    element.text = Some(String::from(char));
+                    elements.push(element);
                 }
             }
         }

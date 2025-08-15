@@ -4,7 +4,7 @@ use std::{
     io::{self, Stdout},
 };
 
-use crate::{Display, ElementDrawContext, GlobalDrawContext, TextAlignment};
+use crate::{css, Display, ElementDrawContext, GlobalDrawContext, TextAlignment};
 use crossterm::{queue, style};
 
 const RED: style::Color = style::Color::Red;
@@ -38,7 +38,6 @@ static H1: ElementType = ElementType {
     draw_ctx: ElementDrawContext {
         bold: true,
         foreground_color: Some(RED),
-        text_align: Some(TextAlignment::Centre),
         ..DEFAULT_DRAW_CTX
     },
     ..DEFAULT_ELEMENT_TYPE
@@ -194,12 +193,14 @@ pub fn apply_draw_ctx(
 
     old_ctx.bold = draw_ctx.bold;
     old_ctx.italics = draw_ctx.italics;
+    old_ctx.foreground_color = draw_ctx.foreground_color;
     Ok(())
 }
 pub struct Element {
     pub ty: &'static ElementType,
     pub children: Vec<Element>,
-    pub attributes: HashMap<String, String>,
+    attributes: HashMap<String, String>,
+    pub style: ElementDrawContext,
     pub text: Option<String>,
 }
 impl Debug for Element {
@@ -208,6 +209,23 @@ impl Debug for Element {
     }
 }
 impl Element {
+    pub fn new(ty: &'static ElementType) -> Self {
+        let style = ty.draw_ctx;
+        Self {
+            ty,
+            children: Vec::new(),
+            attributes: HashMap::new(),
+            style,
+            text: None,
+        }
+    }
+    pub fn set_attributes(&mut self, attributes: HashMap<String, String>) {
+        if let Some(style) = attributes.get("style") {
+            let parsed = css::parse_ruleset(&style);
+            self.style.merge(&parsed);
+        }
+        self.attributes = attributes;
+    }
     fn print_recursive(&self, index: usize) -> String {
         let children_text = match &self.text {
             Some(text) => text.clone(),
@@ -242,7 +260,7 @@ impl Element {
         if self.ty.stops_parsing {
             return Ok(());
         }
-        element_draw_ctx.merge(&self.ty.draw_ctx);
+        element_draw_ctx.merge(&self.style);
 
         if matches!(self.ty.display, Display::Block) && global_ctx.x != 0 {
             global_ctx.y += 1;

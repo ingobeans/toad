@@ -1,10 +1,12 @@
 use crossterm::{cursor, queue, style, terminal};
 use reqwest::Url;
-use std::io::{self, Stdout, Write, stdout};
+use std::io::{self, stdout, Stdout, Write};
 
+use css::*;
 use element::*;
 use parsing::*;
 
+mod css;
 mod element;
 mod parsing;
 

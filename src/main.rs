@@ -55,6 +55,7 @@ impl ElementDrawContext {
         self.bold |= other.bold;
         self.italics |= other.italics;
         self.respect_whitespace |= other.respect_whitespace;
+        // dont merge display, since it isnt inherited
     }
 }
 #[expect(dead_code)]
@@ -117,6 +118,7 @@ impl Toad {
         queue!(
             stdout,
             style::SetBackgroundColor(style::Color::Grey),
+            style::SetForegroundColor(style::Color::Black),
             terminal::Clear(terminal::ClearType::UntilNewLine),
         )?;
         if let Some(title) = &tab.title {

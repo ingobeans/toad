@@ -120,26 +120,30 @@ pub fn parse_stylesheet(text: &str, style: &mut HashMap<StyleTarget, ElementDraw
         if char.is_whitespace() {
             continue;
         }
-        if char != '#' && char != '.' {
-            chars.push(char);
-        }
-        let mut specifier: String = pop_until(&mut chars, &'{').iter().collect();
-        specifier = specifier.trim().to_string();
-
-        let target = if char == '#' {
-            StyleTarget::Id(specifier)
-        } else if char == '.' {
-            StyleTarget::Class(specifier)
-        } else {
-            StyleTarget::ElementType(specifier)
-        };
+        chars.push(char);
+        let specifiers: String = pop_until(&mut chars, &'{').iter().collect();
         let data: String = pop_until(&mut chars, &'}').iter().collect();
         let mut ctx = DEFAULT_DRAW_CTX;
         parse_ruleset(&data, &mut ctx);
-        if let Some(old) = style.get_mut(&target) {
-            old.merge(&ctx);
-        } else {
-            style.insert(target, ctx);
+
+        for specifier in specifiers.split(",") {
+            let specifier = specifier.trim();
+            let Some(char) = specifier.chars().next() else {
+                continue;
+            };
+            println!("{specifier}");
+            let target = if char == '#' {
+                StyleTarget::Id(specifier[1..].to_string())
+            } else if char == '.' {
+                StyleTarget::Class(specifier[1..].to_string())
+            } else {
+                StyleTarget::ElementType(specifier.to_string())
+            };
+            if let Some(old) = style.get_mut(&target) {
+                old.merge(&ctx);
+            } else {
+                style.insert(target, ctx);
+            }
         }
     }
 }

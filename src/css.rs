@@ -1,6 +1,6 @@
 use crossterm::style;
 
-use crate::{Display, ElementDrawContext, TextAlignment, DEFAULT_DRAW_CTX};
+use crate::{Display, ElementDrawContext, TextAlignment};
 
 fn hex_to_rgb(value: u32) -> style::Color {
     style::Color::Rgb {

@@ -221,7 +221,7 @@ impl Element {
     }
     pub fn set_attributes(&mut self, attributes: HashMap<String, String>) {
         if let Some(style) = attributes.get("style") {
-            css::parse_ruleset(&style, &mut self.style);
+            css::parse_ruleset(style, &mut self.style);
         }
         self.attributes = attributes;
     }
@@ -261,11 +261,7 @@ impl Element {
         }
         element_draw_ctx.merge(&self.style);
 
-        let is_display_block = if let Some(Display::Block) = self.style.display {
-            true
-        } else {
-            false
-        };
+        let is_display_block = matches!(self.style.display, Some(Display::Block));
 
         if is_display_block && global_ctx.x != 0 {
             global_ctx.y += 1;

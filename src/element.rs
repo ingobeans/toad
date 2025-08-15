@@ -13,7 +13,6 @@ const RED: style::Color = style::Color::Red;
 pub struct ElementType {
     pub name: &'static str,
     pub stops_parsing: bool,
-    pub display: Display,
     /// Element that has no closing tag, such as <img>
     pub void_element: bool,
     pub draw_ctx: ElementDrawContext,
@@ -21,16 +20,15 @@ pub struct ElementType {
 pub static DEFAULT_ELEMENT_TYPE: ElementType = ElementType {
     name: "unknown",
     stops_parsing: false,
-    display: Display::Inline,
     void_element: false,
     draw_ctx: DEFAULT_DRAW_CTX,
 };
 static H1: ElementType = ElementType {
     name: "h1",
-    display: Display::Block,
     draw_ctx: ElementDrawContext {
         bold: true,
         foreground_color: Some(RED),
+        display: Some(Display::Block),
         ..DEFAULT_DRAW_CTX
     },
     ..DEFAULT_ELEMENT_TYPE
@@ -52,7 +50,10 @@ pub static ELEMENT_TYPES: &[ElementType] = &[
     ElementType {
         name: "br",
         void_element: true,
-        display: Display::Block,
+        draw_ctx: ElementDrawContext {
+            display: Some(Display::Block),
+            ..DEFAULT_DRAW_CTX
+        },
         ..DEFAULT_ELEMENT_TYPE
     },
     ElementType {
@@ -84,16 +85,19 @@ pub static ELEMENT_TYPES: &[ElementType] = &[
     },
     ElementType {
         name: "pre",
-        display: Display::Block,
         draw_ctx: ElementDrawContext {
             respect_whitespace: true,
+            display: Some(Display::Block),
             ..DEFAULT_DRAW_CTX
         },
         ..DEFAULT_ELEMENT_TYPE
     },
     ElementType {
         name: "p",
-        display: Display::Block,
+        draw_ctx: ElementDrawContext {
+            display: Some(Display::Block),
+            ..DEFAULT_DRAW_CTX
+        },
         ..DEFAULT_ELEMENT_TYPE
     },
     ElementType {
@@ -102,7 +106,10 @@ pub static ELEMENT_TYPES: &[ElementType] = &[
     },
     ElementType {
         name: "div",
-        display: Display::Block,
+        draw_ctx: ElementDrawContext {
+            display: Some(Display::Block),
+            ..DEFAULT_DRAW_CTX
+        },
         ..DEFAULT_ELEMENT_TYPE
     },
     ElementType {
@@ -214,8 +221,7 @@ impl Element {
     }
     pub fn set_attributes(&mut self, attributes: HashMap<String, String>) {
         if let Some(style) = attributes.get("style") {
-            let parsed = css::parse_ruleset(&style);
-            self.style.merge(&parsed);
+            css::parse_ruleset(&style, &mut self.style);
         }
         self.attributes = attributes;
     }
@@ -255,7 +261,13 @@ impl Element {
         }
         element_draw_ctx.merge(&self.style);
 
-        if matches!(self.ty.display, Display::Block) && global_ctx.x != 0 {
+        let is_display_block = if let Some(Display::Block) = self.style.display {
+            true
+        } else {
+            false
+        };
+
+        if is_display_block && global_ctx.x != 0 {
             global_ctx.y += 1;
             global_ctx.x = 0;
         }
@@ -272,7 +284,7 @@ impl Element {
         for child in self.children.iter() {
             child.draw(element_draw_ctx, global_ctx)?;
         }
-        if matches!(self.ty.display, Display::Block) {
+        if is_display_block {
             global_ctx.y += 1;
             global_ctx.x = 0;
         }

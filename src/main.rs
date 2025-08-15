@@ -16,7 +16,6 @@ struct Webpage {
     url: Option<Url>,
     root: Option<Element>,
 }
-#[expect(dead_code)]
 #[derive(Clone, Copy, PartialEq)]
 enum TextAlignment {
     Left,
@@ -33,6 +32,7 @@ struct ElementDrawContext {
     text_align: Option<TextAlignment>,
     foreground_color: Option<style::Color>,
     background_color: Option<style::Color>,
+    display: Option<Display>,
     bold: bool,
     italics: bool,
     respect_whitespace: bool,
@@ -41,6 +41,7 @@ static DEFAULT_DRAW_CTX: ElementDrawContext = ElementDrawContext {
     text_align: None,
     foreground_color: None,
     background_color: None,
+    display: None,
     bold: false,
     italics: false,
     respect_whitespace: false,
@@ -146,12 +147,12 @@ mod tests {
 
     #[test]
     fn print_test() {
-        let test_page = parse_html(include_str!("test.html")).unwrap();
+        let test_page = parse_html(include_str!("home.html")).unwrap();
         println!("{:?}", test_page.root);
     }
 }
 fn main() -> io::Result<()> {
-    let test_page = parse_html(include_str!("test.html")).unwrap();
+    let test_page = parse_html(include_str!("home.html")).unwrap();
     let toad = Toad {
         tabs: vec![test_page],
         tab_index: 0,

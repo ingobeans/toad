@@ -1,6 +1,6 @@
 use crossterm::style;
 
-use crate::{ElementDrawContext, TextAlignment, DEFAULT_DRAW_CTX};
+use crate::{Display, ElementDrawContext, TextAlignment, DEFAULT_DRAW_CTX};
 
 fn hex_to_rgb(value: u32) -> style::Color {
     style::Color::Rgb {
@@ -67,6 +67,13 @@ fn parse_align_mode(text: &str) -> Option<TextAlignment> {
         _ => None,
     }
 }
+fn parse_display_mode(text: &str) -> Option<Display> {
+    match text.to_lowercase().trim() {
+        "block" => Some(Display::Block),
+        "inline" => Some(Display::Inline),
+        _ => None,
+    }
+}
 fn try_apply_rule(ctx: &mut ElementDrawContext, rule: &str) {
     let Some((key, value)) = rule.split_once(':') else {
         return;
@@ -88,14 +95,17 @@ fn try_apply_rule(ctx: &mut ElementDrawContext, rule: &str) {
                 ctx.text_align = Some(align_mode);
             }
         }
+        "display" => {
+            if let Some(display_mode) = parse_display_mode(value) {
+                ctx.display = Some(display_mode);
+            }
+        }
         _ => {}
     }
 }
 
-pub fn parse_ruleset(text: &str) -> ElementDrawContext {
-    let mut ctx = DEFAULT_DRAW_CTX;
+pub fn parse_ruleset(text: &str, ctx: &mut ElementDrawContext) {
     for rule in text.split(';') {
-        try_apply_rule(&mut ctx, rule);
+        try_apply_rule(ctx, rule);
     }
-    ctx
 }

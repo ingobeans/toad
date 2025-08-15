@@ -138,6 +138,7 @@ impl Toad {
     fn run(&mut self) -> io::Result<()> {
         let mut running = true;
         self.draw()?;
+        terminal::enable_raw_mode()?;
         while running {
             let event = event::read()?;
             if !event.is_key_press() {
@@ -165,6 +166,7 @@ impl Toad {
                 _ => {}
             }
         }
+        terminal::disable_raw_mode()?;
         Ok(())
     }
     fn draw(&self) -> io::Result<()> {

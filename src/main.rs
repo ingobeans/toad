@@ -9,7 +9,6 @@ mod css;
 mod element;
 mod parsing;
 
-#[expect(dead_code)]
 #[derive(Default)]
 struct Webpage {
     title: Option<String>,

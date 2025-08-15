@@ -132,7 +132,7 @@ impl Element {
             global_ctx.actual_cursor_y = global_ctx.y;
         }
         for child in self.children.iter() {
-            child.draw(element_draw_ctx.clone(), global_ctx)?;
+            child.draw(element_draw_ctx, global_ctx)?;
         }
         if self.ty.needs_linebreak {
             global_ctx.y += 1;

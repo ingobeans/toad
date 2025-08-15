@@ -1,4 +1,4 @@
-use std::{collections::HashMap, fmt::Display};
+use std::collections::HashMap;
 
 use crate::{
     Webpage,
@@ -58,7 +58,7 @@ fn pop_until_all<T: PartialEq>(a: &mut Vec<T>, b: &[T]) -> Vec<T> {
     popped
 }
 
-fn next_is<T: PartialEq>(a: &mut Vec<T>, b: &T) -> bool {
+fn next_is<T: PartialEq>(a: &[T], b: &T) -> bool {
     let Some(item) = a.last() else {
         return false;
     };
@@ -157,7 +157,6 @@ pub fn parse(buf: &mut Vec<char>) -> Vec<Element> {
                     });
                 }
             }
-            _ => {}
         }
     }
     elements

@@ -1,7 +1,9 @@
 use std::collections::HashMap;
 
 use crate::{
+    css::parse_stylesheet,
     element::{get_element_type, Element, DEFAULT_ELEMENT_TYPE},
+    utils::*,
     Webpage,
 };
 
@@ -22,64 +24,34 @@ fn find_title(element: &Element) -> Option<&Element> {
     }
     None
 }
-
+fn get_all_styles(element: &Element, buf: &mut String) {
+    if element.ty.name == "style" {
+        if let Some(text) = &element.text {
+            *buf += text
+        }
+    }
+    for child in element.children.iter() {
+        get_all_styles(child, buf);
+    }
+}
 pub fn parse_html(text: &str) -> Option<Webpage> {
     let mut buf: Vec<char> = text.chars().collect();
     buf.reverse();
     let root = parse(&mut buf).pop();
     let mut title = None;
+    let mut global_style = HashMap::new();
     if let Some(root) = &root {
         title = find_title(root).map(|element| element.text.clone().unwrap());
+        let mut all_styles = String::new();
+        get_all_styles(root, &mut all_styles);
+        parse_stylesheet(&all_styles, &mut global_style);
     }
     root.map(|root| Webpage {
         title,
         url: None,
         root: Some(root),
+        global_style,
     })
-}
-
-fn pop_until<T: PartialEq>(a: &mut Vec<T>, b: &T) -> Vec<T> {
-    let mut popped = Vec::new();
-    while let Some(item) = a.pop() {
-        if &item == b {
-            return popped;
-        }
-        popped.push(item);
-    }
-    popped
-}
-fn pop_until_any<T: PartialEq>(a: &mut Vec<T>, b: &[T]) -> (Vec<T>, Option<T>) {
-    let mut popped = Vec::new();
-    while let Some(item) = a.pop() {
-        if b.contains(&item) {
-            return (popped, Some(item));
-        }
-        popped.push(item);
-    }
-    (popped, None)
-}
-fn pop_until_all<T: PartialEq>(a: &mut Vec<T>, b: &[T]) -> Vec<T> {
-    let mut match_index = 0;
-    let mut popped = Vec::new();
-    while let Some(item) = a.pop() {
-        if b[match_index] == item {
-            match_index += 1;
-            if match_index >= b.len() {
-                return popped;
-            }
-            continue;
-        }
-        match_index = 0;
-        popped.push(item);
-    }
-    popped
-}
-
-fn next_is<T: PartialEq>(a: &[T], b: &T) -> bool {
-    let Some(item) = a.last() else {
-        return false;
-    };
-    item == b
 }
 
 pub fn parse(buf: &mut Vec<char>) -> Vec<Element> {

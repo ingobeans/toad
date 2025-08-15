@@ -1,6 +1,8 @@
+use std::collections::HashMap;
+
 use crossterm::style;
 
-use crate::{Display, ElementDrawContext, TextAlignment};
+use crate::{utils::*, Display, ElementDrawContext, StyleTarget, TextAlignment, DEFAULT_DRAW_CTX};
 
 fn hex_to_rgb(value: u32) -> style::Color {
     style::Color::Rgb {
@@ -108,5 +110,36 @@ fn try_apply_rule(ctx: &mut ElementDrawContext, rule: &str) {
 pub fn parse_ruleset(text: &str, ctx: &mut ElementDrawContext) {
     for rule in text.split(';') {
         try_apply_rule(ctx, rule);
+    }
+}
+
+pub fn parse_stylesheet(text: &str, style: &mut HashMap<StyleTarget, ElementDrawContext>) {
+    let mut chars: Vec<char> = text.chars().collect();
+    chars.reverse();
+    while let Some(char) = chars.pop() {
+        if char.is_whitespace() {
+            continue;
+        }
+        if char != '#' && char != '.' {
+            chars.push(char);
+        }
+        let mut specifier: String = pop_until(&mut chars, &'{').iter().collect();
+        specifier = specifier.trim().to_string();
+
+        let target = if char == '#' {
+            StyleTarget::Id(specifier)
+        } else if char == '.' {
+            StyleTarget::Class(specifier)
+        } else {
+            StyleTarget::ElementType(specifier)
+        };
+        let data: String = pop_until(&mut chars, &'}').iter().collect();
+        let mut ctx = DEFAULT_DRAW_CTX;
+        parse_ruleset(&data, &mut ctx);
+        if let Some(old) = style.get_mut(&target) {
+            old.merge(&ctx);
+        } else {
+            style.insert(target, ctx);
+        }
     }
 }

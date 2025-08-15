@@ -1,6 +1,9 @@
 use crossterm::{cursor, event, execute, queue, style, terminal};
 use reqwest::Url;
-use std::io::{self, stdout, Stdout, Write};
+use std::{
+    collections::HashMap,
+    io::{self, stdout, Stdout, Write},
+};
 
 use element::*;
 use parsing::*;
@@ -8,12 +11,14 @@ use parsing::*;
 mod css;
 mod element;
 mod parsing;
+mod utils;
 
 #[derive(Default)]
 struct Webpage {
     title: Option<String>,
     url: Option<Url>,
     root: Option<Element>,
+    global_style: HashMap<StyleTarget, ElementDrawContext>,
 }
 #[derive(Clone, Copy, PartialEq)]
 enum TextAlignment {
@@ -47,6 +52,10 @@ static DEFAULT_DRAW_CTX: ElementDrawContext = ElementDrawContext {
     respect_whitespace: false,
 };
 impl ElementDrawContext {
+    fn merge_all(&mut self, other: &ElementDrawContext) {
+        self.merge(other);
+        self.display = other.display.or(self.display);
+    }
     fn merge(&mut self, other: &ElementDrawContext) {
         self.text_align = other.text_align.or(self.text_align);
         self.foreground_color = other.foreground_color.or(self.foreground_color);
@@ -57,6 +66,23 @@ impl ElementDrawContext {
         // dont merge display, since it isnt inherited
     }
 }
+
+#[derive(Clone, Hash, PartialEq, Eq, Debug)]
+enum StyleTarget {
+    ElementType(String),
+    Class(String),
+    Id(String),
+}
+impl StyleTarget {
+    fn matches(&self, element: &Element) -> bool {
+        match self {
+            StyleTarget::ElementType(ty) => element.ty.name == ty,
+            StyleTarget::Class(class) => element.classes.contains(class),
+            StyleTarget::Id(id) => element.get_attribute("id").is_some_and(|i| i == id),
+        }
+    }
+}
+
 #[expect(dead_code)]
 #[derive(Clone)]
 struct GlobalDrawContext<'a> {
@@ -68,6 +94,7 @@ struct GlobalDrawContext<'a> {
     actual_cursor_y: u16,
     stdout: &'a Stdout,
     last_draw_ctx: ElementDrawContext,
+    global_style: &'a HashMap<StyleTarget, ElementDrawContext>,
 }
 impl GlobalDrawContext<'_> {
     fn draw_line(&mut self, text: &str, draw_ctx: ElementDrawContext) -> io::Result<()> {
@@ -196,6 +223,7 @@ impl Toad {
             actual_cursor_y: 0,
             stdout,
             last_draw_ctx: DEFAULT_DRAW_CTX,
+            global_style: &tab.global_style,
         };
         tab.root
             .as_ref()

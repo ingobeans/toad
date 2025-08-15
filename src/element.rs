@@ -202,6 +202,7 @@ pub struct Element {
     attributes: HashMap<String, String>,
     pub style: ElementDrawContext,
     pub text: Option<String>,
+    pub classes: Vec<String>,
 }
 impl Debug for Element {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -210,18 +211,24 @@ impl Debug for Element {
 }
 impl Element {
     pub fn new(ty: &'static ElementType) -> Self {
-        let style = ty.draw_ctx;
         Self {
             ty,
             children: Vec::new(),
             attributes: HashMap::new(),
-            style,
+            classes: Vec::new(),
+            style: DEFAULT_DRAW_CTX,
             text: None,
         }
+    }
+    pub fn get_attribute(&self, k: &str) -> Option<&String> {
+        self.attributes.get(k)
     }
     pub fn set_attributes(&mut self, attributes: HashMap<String, String>) {
         if let Some(style) = attributes.get("style") {
             css::parse_ruleset(style, &mut self.style);
+        }
+        if let Some(class) = attributes.get("class") {
+            self.classes = class.split(' ').map(|f| f.to_string()).collect();
         }
         self.attributes = attributes;
     }
@@ -256,12 +263,24 @@ impl Element {
         mut element_draw_ctx: ElementDrawContext,
         global_ctx: &mut GlobalDrawContext,
     ) -> io::Result<()> {
-        if self.ty.stops_parsing || matches!(self.style.display, Some(Display::None)) {
+        // construct this elements style by overlaying:
+        //  - the base element's style
+        //  - matching global styles
+        //  - inline css
+
+        let mut style = self.ty.draw_ctx;
+        for (k, v) in global_ctx.global_style.iter() {
+            if k.matches(&self) {
+                style.merge_all(v);
+            }
+        }
+        style.merge(&self.style);
+        if self.ty.stops_parsing || matches!(style.display, Some(Display::None)) {
             return Ok(());
         }
-        element_draw_ctx.merge(&self.style);
+        element_draw_ctx.merge(&style);
 
-        let is_display_block = matches!(self.style.display, Some(Display::Block));
+        let is_display_block = matches!(style.display, Some(Display::Block));
 
         if is_display_block && global_ctx.x != 0 {
             global_ctx.y += 1;

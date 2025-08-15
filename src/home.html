@@ -6,13 +6,26 @@
 </head>
 
 <body>
-    <h1 style="text-align: center;">welcome to TOAD</h1>
+    <style>
+        h1 {
+            text-align: center;
+        }
+
+        .inlined {
+            display: inline;
+        }
+
+        .green {
+            color: green;
+        }
+    </style>
+    <h1>welcome to TOAD</h1>
     <br />
     <div>
         <p>here are some inline texts:</p>
-        <p style="color: green;display: inline;">green!!!</p>
-        <p style="color: #ff00ff;display: inline;">purple!!!</p>
-        <p style="color: rgb(255,198,2);display: inline;">yellow!!!</p>
+        <p class="inlined green">green!!!</p>
+        <p class="inlined" style="color: #ff00ff;">purple!!!</p>
+        <p class="inlined" style="color: rgb(255,198,2);">yellow!!!</p>
     </div>
 </body>
 

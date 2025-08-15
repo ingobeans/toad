@@ -82,15 +82,6 @@ fn next_is<T: PartialEq>(a: &[T], b: &T) -> bool {
     item == b
 }
 
-#[test]
-fn wa() {
-    let mut buf: Vec<char> = "i am teereere hello world".chars().collect();
-    buf.reverse();
-    let chars: Vec<char> = format!("hello").chars().collect();
-    pop_until_all(&mut buf, &chars);
-    println!("{buf:?}");
-}
-
 pub fn parse(buf: &mut Vec<char>) -> Vec<Element> {
     let mut elements = Vec::new();
     let mut state = ParseState::WaitingForElement;

@@ -1,4 +1,4 @@
-use crossterm::{cursor, execute, queue, style, terminal};
+use crossterm::{cursor, event, execute, queue, style, terminal};
 use reqwest::Url;
 use std::io::{self, stdout, Stdout, Write};
 
@@ -109,20 +109,45 @@ struct Toad {
     tab_index: usize,
 }
 impl Toad {
+    fn run(&mut self) -> io::Result<()> {
+        let mut running = true;
+        self.draw()?;
+        while running {
+            let event = event::read()?;
+            if !event.is_key_press() {
+                continue;
+            }
+            let event::Event::Key(key) = event else {
+                continue;
+            };
+            match key.code {
+                event::KeyCode::Enter => {
+                    self.draw()?;
+                }
+                event::KeyCode::Char(char) => {
+                    if char == 'q' {
+                        running = false;
+                    }
+                }
+                _ => {}
+            }
+        }
+        Ok(())
+    }
     fn draw(&self) -> io::Result<()> {
         let stdout = stdout();
         self.clear_screen(&stdout)?;
-        self.draw_current_page(&stdout, 0, 2)
+        self.draw_current_page(&stdout)
     }
     fn draw_topbar(&self, mut stdout: &Stdout, tab: &Webpage) -> io::Result<()> {
         queue!(
             stdout,
             style::SetBackgroundColor(style::Color::Grey),
             style::SetForegroundColor(style::Color::Black),
-            terminal::Clear(terminal::ClearType::UntilNewLine),
+            terminal::Clear(terminal::ClearType::CurrentLine),
         )?;
         if let Some(title) = &tab.title {
-            print!("{}", title);
+            print!("{}", title.trim());
         }
         queue!(stdout, style::ResetColor)?;
         Ok(())
@@ -134,10 +159,12 @@ impl Toad {
             cursor::MoveTo(0, 0)
         )
     }
-    fn draw_current_page(&self, mut stdout: &Stdout, x: u16, y: u16) -> io::Result<()> {
+    fn draw_current_page(&self, mut stdout: &Stdout) -> io::Result<()> {
         let Some(tab) = self.tabs.get(self.tab_index) else {
             return Ok(());
         };
+        let x = 0;
+        let y = 1;
         self.draw_topbar(stdout, tab)?;
         let (width, height) = terminal::size()?;
         let mut ctx = GlobalDrawContext {
@@ -157,21 +184,11 @@ impl Toad {
         execute!(stdout, style::ResetColor)
     }
 }
-#[cfg(test)]
-mod tests {
-    use crate::parsing::parse_html;
-
-    #[test]
-    fn print_test() {
-        let test_page = parse_html(include_str!("home.html")).unwrap();
-        println!("{:?}", test_page.root);
-    }
-}
 fn main() -> io::Result<()> {
     let test_page = parse_html(include_str!("home.html")).unwrap();
-    let toad = Toad {
+    let mut toad = Toad {
         tabs: vec![test_page],
         tab_index: 0,
     };
-    toad.draw()
+    toad.run()
 }

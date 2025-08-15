@@ -274,7 +274,7 @@ impl Element {
 
         let mut style = self.ty.draw_ctx;
         for (k, v) in global_ctx.global_style.iter() {
-            if k.matches(&self) {
+            if k.matches(self) {
                 style.merge_all(v);
             }
         }

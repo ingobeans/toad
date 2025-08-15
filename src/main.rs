@@ -2,7 +2,7 @@ use crossterm::{cursor, event, execute, queue, style, terminal};
 use reqwest::{Client, Url};
 use std::{
     collections::HashMap,
-    io::{self, stdout, Read, Stdout, Write},
+    io::{self, stdout, Stdout, Write},
     str::FromStr,
 };
 
@@ -139,9 +139,7 @@ struct Toad {
 impl Toad {
     fn new(tabs: Vec<Webpage>) -> Result<Self, reqwest::Error> {
         let client = Client::builder()
-            .user_agent(format!(
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:141.0) Gecko/20100101 Firefox/141.0"
-            ))
+            .user_agent(format!("toad/{}", env!("CARGO_PKG_VERSION")))
             .build()?;
         Ok(Self {
             tabs,

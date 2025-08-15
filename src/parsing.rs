@@ -1,7 +1,5 @@
 use std::collections::HashMap;
 
-use reqwest::Url;
-
 use crate::{
     css::parse_stylesheet,
     element::{get_element_type, Element, DEFAULT_ELEMENT_TYPE},

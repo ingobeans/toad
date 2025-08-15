@@ -141,7 +141,16 @@ pub fn parse(buf: &mut Vec<char>) -> Vec<Element> {
                         return elements;
                     }
                     if next_is(buf, &'!') {
-                        pop_until(buf, &'>');
+                        buf.pop();
+                        // if next characters are "--", that means we're in a comment
+                        if buf.pop().is_some_and(|c| c == '-')
+                            && buf.pop().is_some_and(|c| c == '-')
+                        {
+                            pop_until_all(buf, &['-', '-', '>']);
+                        } else {
+                            // otherwise, pop until ">", we're probably in a <!DOCTYPE html>
+                            pop_until(buf, &'>');
+                        }
                         continue;
                     }
                     state = ParseState::InElementType(String::new(), HashMap::new());

@@ -124,6 +124,13 @@ impl Toad {
                 event::KeyCode::Enter => {
                     self.draw()?;
                 }
+                event::KeyCode::Tab => {
+                    self.tab_index += 1;
+                    if self.tab_index >= self.tabs.len() {
+                        self.tab_index = 0;
+                    }
+                    self.draw()?;
+                }
                 event::KeyCode::Char(char) => {
                     if char == 'q' {
                         running = false;
@@ -137,17 +144,32 @@ impl Toad {
     fn draw(&self) -> io::Result<()> {
         let stdout = stdout();
         self.clear_screen(&stdout)?;
+        self.draw_topbar(&stdout)?;
         self.draw_current_page(&stdout)
     }
-    fn draw_topbar(&self, mut stdout: &Stdout, tab: &Webpage) -> io::Result<()> {
+    fn draw_topbar(&self, mut stdout: &Stdout) -> io::Result<()> {
         queue!(
             stdout,
             style::SetBackgroundColor(style::Color::Grey),
             style::SetForegroundColor(style::Color::Black),
             terminal::Clear(terminal::ClearType::CurrentLine),
         )?;
-        if let Some(title) = &tab.title {
-            print!("[{}]", title.trim());
+        for (index, tab) in self.tabs.iter().enumerate() {
+            let text = if let Some(title) = &tab.title {
+                title.trim()
+            } else if let Some(url) = &tab.url {
+                &url.to_string()
+            } else {
+                "untitled"
+            };
+            if index == self.tab_index {
+                queue!(stdout, style::SetBackgroundColor(style::Color::White))?;
+                print!("[{text}]");
+                queue!(stdout, style::SetBackgroundColor(style::Color::Grey))?;
+                print!(" ")
+            } else {
+                print!("[{text}] ");
+            }
         }
         queue!(stdout, style::ResetColor)?;
         Ok(())
@@ -165,7 +187,6 @@ impl Toad {
         };
         let x = 0;
         let y = 1;
-        self.draw_topbar(stdout, tab)?;
         let (width, height) = terminal::size()?;
         let mut ctx = GlobalDrawContext {
             width,
@@ -185,9 +206,11 @@ impl Toad {
     }
 }
 fn main() -> io::Result<()> {
-    let test_page = parse_html(include_str!("home.html")).unwrap();
     let mut toad = Toad {
-        tabs: vec![test_page],
+        tabs: vec![
+            parse_html(include_str!("home.html")).unwrap(),
+            parse_html(include_str!("test.html")).unwrap(),
+        ],
         tab_index: 0,
     };
     toad.run()

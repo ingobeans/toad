@@ -14,12 +14,15 @@ pub struct ElementType {
     pub stops_parsing: bool,
     pub needs_linebreak: bool,
     pub respect_whitespace: bool,
+    /// Element that has no closing tag, such as <img>
+    pub void_element: bool,
 }
 pub static DEFAULT_ELEMENT_TYPE: ElementType = ElementType {
     name: "unknown",
     stops_parsing: false,
     needs_linebreak: false,
     respect_whitespace: false,
+    void_element: false,
 };
 pub static ELEMENT_TYPES: &[ElementType] = &[
     ElementType {
@@ -28,6 +31,27 @@ pub static ELEMENT_TYPES: &[ElementType] = &[
     },
     ElementType {
         name: "html",
+        ..DEFAULT_ELEMENT_TYPE
+    },
+    ElementType {
+        name: "img",
+        void_element: true,
+        ..DEFAULT_ELEMENT_TYPE
+    },
+    ElementType {
+        name: "br",
+        void_element: true,
+        needs_linebreak: true,
+        ..DEFAULT_ELEMENT_TYPE
+    },
+    ElementType {
+        name: "input",
+        void_element: true,
+        ..DEFAULT_ELEMENT_TYPE
+    },
+    ElementType {
+        name: "hr",
+        void_element: true,
         ..DEFAULT_ELEMENT_TYPE
     },
     ElementType {

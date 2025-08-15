@@ -88,9 +88,9 @@ pub fn parse(buf: &mut Vec<char>) -> Vec<Element> {
                             attributes,
                             text: None,
                         };
-                        if !element.ty.stops_parsing {
+                        if !element.ty.void_element && !element.ty.stops_parsing {
                             element.children = parse(buf);
-                        } else {
+                        } else if element.ty.stops_parsing {
                             let chars: Vec<char> = format!("</{name}>").chars().collect();
                             let text = pop_until_all(buf, &chars);
                             element.text = Some(text[..].iter().collect());

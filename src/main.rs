@@ -59,11 +59,11 @@ impl Toad {
 }
 fn main() -> io::Result<()> {
     let test_page = parse_html(include_str!("test.html")).unwrap();
-    // println!("{:?}", test_page.root);
-    // Ok(())
-    let toad = Toad {
-        tabs: vec![test_page],
-        tab_index: 0,
-    };
-    toad.draw()
+    println!("{:?}", test_page.root);
+    Ok(())
+    // let toad = Toad {
+    //     tabs: vec![test_page],
+    //     tab_index: 0,
+    // };
+    // toad.draw()
 }

@@ -4,7 +4,7 @@ use std::{
     io::{self, Stdout},
 };
 
-use crate::{ElementDrawContext, GlobalDrawContext, TextAlignment};
+use crate::{Display, ElementDrawContext, GlobalDrawContext, TextAlignment};
 use crossterm::{queue, style};
 
 const RED: style::Color = style::Color::Red;
@@ -13,7 +13,7 @@ const RED: style::Color = style::Color::Red;
 pub struct ElementType {
     pub name: &'static str,
     pub stops_parsing: bool,
-    pub needs_linebreak: bool,
+    pub display: Display,
     /// Element that has no closing tag, such as <img>
     pub void_element: bool,
     pub draw_ctx: ElementDrawContext,
@@ -28,13 +28,13 @@ pub static DEFAULT_DRAW_CTX: ElementDrawContext = ElementDrawContext {
 pub static DEFAULT_ELEMENT_TYPE: ElementType = ElementType {
     name: "unknown",
     stops_parsing: false,
-    needs_linebreak: false,
+    display: Display::Inline,
     void_element: false,
     draw_ctx: DEFAULT_DRAW_CTX,
 };
 static H1: ElementType = ElementType {
     name: "h1",
-    needs_linebreak: true,
+    display: Display::Block,
     draw_ctx: ElementDrawContext {
         bold: true,
         foreground_color: Some(RED),
@@ -60,7 +60,7 @@ pub static ELEMENT_TYPES: &[ElementType] = &[
     ElementType {
         name: "br",
         void_element: true,
-        needs_linebreak: true,
+        display: Display::Block,
         ..DEFAULT_ELEMENT_TYPE
     },
     ElementType {
@@ -92,7 +92,7 @@ pub static ELEMENT_TYPES: &[ElementType] = &[
     },
     ElementType {
         name: "pre",
-        needs_linebreak: true,
+        display: Display::Block,
         draw_ctx: ElementDrawContext {
             respect_whitespace: true,
             ..DEFAULT_DRAW_CTX
@@ -101,7 +101,7 @@ pub static ELEMENT_TYPES: &[ElementType] = &[
     },
     ElementType {
         name: "p",
-        needs_linebreak: true,
+        display: Display::Block,
         ..DEFAULT_ELEMENT_TYPE
     },
     ElementType {
@@ -110,7 +110,7 @@ pub static ELEMENT_TYPES: &[ElementType] = &[
     },
     ElementType {
         name: "div",
-        needs_linebreak: true,
+        display: Display::Block,
         ..DEFAULT_ELEMENT_TYPE
     },
     ElementType {
@@ -244,7 +244,7 @@ impl Element {
         }
         element_draw_ctx.merge(&self.ty.draw_ctx);
 
-        if self.ty.needs_linebreak && global_ctx.x != 0 {
+        if matches!(self.ty.display, Display::Block) && global_ctx.x != 0 {
             global_ctx.y += 1;
             global_ctx.x = 0;
         }
@@ -261,7 +261,7 @@ impl Element {
         for child in self.children.iter() {
             child.draw(element_draw_ctx, global_ctx)?;
         }
-        if self.ty.needs_linebreak {
+        if matches!(self.ty.display, Display::Block) {
             global_ctx.y += 1;
             global_ctx.x = 0;
         }

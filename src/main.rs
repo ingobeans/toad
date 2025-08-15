@@ -23,6 +23,11 @@ enum TextAlignment {
     Right,
 }
 #[derive(Clone, Copy, PartialEq)]
+enum Display {
+    Inline,
+    Block,
+}
+#[derive(Clone, Copy, PartialEq)]
 struct ElementDrawContext {
     text_align: Option<TextAlignment>,
     foreground_color: Option<style::Color>,

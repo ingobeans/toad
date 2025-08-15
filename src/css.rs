@@ -1,6 +1,6 @@
 use crossterm::style;
 
-use crate::{element::DEFAULT_DRAW_CTX, ElementDrawContext};
+use crate::{ElementDrawContext, TextAlignment, DEFAULT_DRAW_CTX};
 
 fn hex_to_rgb(value: u32) -> style::Color {
     style::Color::Rgb {
@@ -13,7 +13,7 @@ fn parse_rgb_text(text: &str) -> Option<style::Color> {
     let text = &text[4..text.len() - 1];
     let mut parts: Vec<u8> = Vec::new();
     for part in text.split(",") {
-        parts.push(part.parse().ok()?);
+        parts.push(part.trim().parse().ok()?);
     }
     if parts.len() != 3 {
         return None;
@@ -59,6 +59,14 @@ fn parse_color(text: &str) -> Option<style::Color> {
         parse_color_text(text)
     }
 }
+fn parse_align_mode(text: &str) -> Option<TextAlignment> {
+    match text.to_lowercase().trim() {
+        "center" => Some(TextAlignment::Centre),
+        "left" | "start" => Some(TextAlignment::Left),
+        "right" | "end" => Some(TextAlignment::Right),
+        _ => None,
+    }
+}
 fn try_apply_rule(ctx: &mut ElementDrawContext, rule: &str) {
     let Some((key, value)) = rule.split_once(':') else {
         return;
@@ -66,9 +74,18 @@ fn try_apply_rule(ctx: &mut ElementDrawContext, rule: &str) {
     let (key, value) = (key.trim(), value.trim());
     match key {
         "color" => {
-            println!("{key},{value}");
             if let Some(color) = parse_color(value) {
                 ctx.foreground_color = Some(color);
+            }
+        }
+        "background-color" => {
+            if let Some(color) = parse_color(value) {
+                ctx.background_color = Some(color);
+            }
+        }
+        "text-align" => {
+            if let Some(align_mode) = parse_align_mode(value) {
+                ctx.text_align = Some(align_mode);
             }
         }
         _ => {}

@@ -4,7 +4,7 @@ use std::{
     io::{self, Stdout},
 };
 
-use crate::{css, Display, ElementDrawContext, GlobalDrawContext, TextAlignment};
+use crate::{css, Display, ElementDrawContext, GlobalDrawContext, DEFAULT_DRAW_CTX};
 use crossterm::{queue, style};
 
 const RED: style::Color = style::Color::Red;
@@ -18,13 +18,6 @@ pub struct ElementType {
     pub void_element: bool,
     pub draw_ctx: ElementDrawContext,
 }
-pub static DEFAULT_DRAW_CTX: ElementDrawContext = ElementDrawContext {
-    text_align: None,
-    foreground_color: None,
-    bold: false,
-    italics: false,
-    respect_whitespace: false,
-};
 pub static DEFAULT_ELEMENT_TYPE: ElementType = ElementType {
     name: "unknown",
     stops_parsing: false,
@@ -162,7 +155,8 @@ pub fn apply_draw_ctx(
 ) -> io::Result<()> {
     let needs_clearing = (!draw_ctx.bold && old_ctx.bold)
         || (!draw_ctx.italics && old_ctx.italics)
-        || (draw_ctx.foreground_color.is_none() && old_ctx.foreground_color.is_some());
+        || (draw_ctx.foreground_color.is_none() && old_ctx.foreground_color.is_some())
+        || (draw_ctx.background_color.is_none() && old_ctx.background_color.is_some());
 
     if needs_clearing {
         queue!(stdout, style::ResetColor)?;
@@ -170,30 +164,29 @@ pub fn apply_draw_ctx(
         old_ctx.italics = false;
         old_ctx.foreground_color = None;
     }
+    let mut attributes = style::Attributes::none();
 
-    if draw_ctx.bold != old_ctx.bold {
-        if draw_ctx.bold {
-            queue!(stdout, style::SetAttribute(style::Attribute::Bold))?
-        }
+    if draw_ctx.bold {
+        attributes.set(style::Attribute::Bold);
     }
-    if draw_ctx.italics != old_ctx.italics {
-        if draw_ctx.italics {
-            queue!(stdout, style::SetAttribute(style::Attribute::Italic))?
-        }
+    if draw_ctx.italics {
+        attributes.set(style::Attribute::Italic);
     }
-    if draw_ctx
-        .foreground_color
-        .is_some_and(|color| old_ctx.foreground_color.is_none_or(|old| old != color))
-    {
-        queue!(
-            stdout,
-            style::SetForegroundColor(draw_ctx.foreground_color.unwrap())
-        )?;
-    }
+
+    queue!(
+        stdout,
+        style::SetStyle(style::ContentStyle {
+            foreground_color: draw_ctx.foreground_color,
+            background_color: draw_ctx.background_color,
+            attributes,
+            ..Default::default()
+        })
+    )?;
 
     old_ctx.bold = draw_ctx.bold;
     old_ctx.italics = draw_ctx.italics;
     old_ctx.foreground_color = draw_ctx.foreground_color;
+    old_ctx.background_color = draw_ctx.background_color;
     Ok(())
 }
 pub struct Element {

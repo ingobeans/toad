@@ -418,16 +418,18 @@ impl Toad {
                                 let DrawCall::Rect(rx, ry, rw, rh, color) = rect else {
                                     continue;
                                 };
-                                let horizontal_range = *rx..rx + rw;
-                                let vertical_range = *ry..ry + rh;
-                                if vertical_range.contains(&y) && horizontal_range.contains(&x)
-                                    || horizontal_range.contains(&(x + text_len))
+                                let horizontal_range = *rx..(rx + rw);
+                                let vertical_range = (*ry)..(ry + rh);
+                                if vertical_range.contains(&y)
+                                    && (horizontal_range.contains(&x)
+                                        || horizontal_range.contains(&(x + text_len)))
                                 {
                                     let start = *rx.max(&x) - x;
                                     let end = (rx + rw).min(x + text_len) - x;
-                                    let part = &text[start as usize..end as usize];
+                                    // remove any chunks that are covered by this chunk
+                                    chunks.retain(|(s, e, _)| *s < start || *e > end);
 
-                                    chunks.push((part, color, start + x));
+                                    chunks.push((start, end, color));
                                 }
                             }
                         }
@@ -437,7 +439,9 @@ impl Toad {
                         print!("{line}");
                         actual_cursor_x = x + text_len;
                         actual_cursor_y = y;
-                        for (line, color, x) in chunks.into_iter() {
+                        for (start, end, color) in chunks.into_iter() {
+                            let x = start + x;
+                            let line = &text[start as usize..end as usize];
                             let mut ctx = ctx;
                             ctx.background_color = Specified(*color);
                             apply_draw_ctx(ctx, &mut last, &mut stdout.lock())?;

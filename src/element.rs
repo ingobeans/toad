@@ -355,6 +355,8 @@ impl Element {
         }
         let screen_size = (global_ctx.width, global_ctx.height);
 
+        let mut min_move_y = 0;
+
         let width = style
             .width
             .map(|width| width.to_pixels(screen_size, self, global_ctx, parent_draw_ctx));
@@ -374,6 +376,7 @@ impl Element {
                 height / LH,
                 color,
             ));
+            min_move_y = height / LH;
         }
 
         if let Some(text) = &self.text
@@ -399,15 +402,20 @@ impl Element {
                 }
             }
         }
+        let old_y = global_ctx.y;
         for child in self.children.iter() {
             child.draw(style, global_ctx)?;
         }
+        let move_y = global_ctx.y - old_y;
         if let Some(width) = width {
             global_ctx.x += width / EM;
         }
         if let Some(height) = height {
-            global_ctx.y += height / LH;
-            global_ctx.x = 0;
+            if move_y < min_move_y {
+                let amt = min_move_y - move_y;
+                global_ctx.y += amt;
+                global_ctx.x = 0;
+            }
         } else if is_display_block {
             global_ctx.y += 1;
             global_ctx.x = 0;

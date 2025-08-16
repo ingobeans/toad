@@ -304,14 +304,17 @@ impl Toad {
         execute!(stdout, cursor::Show)?;
         Ok(())
     }
-    fn draw(&self, stdout: &Stdout) -> io::Result<()> {
+    fn draw(&self, mut stdout: &Stdout) -> io::Result<()> {
         self.clear_screen(stdout)?;
+        self.draw_current_page(stdout)?;
         self.draw_topbar(stdout)?;
-        self.draw_current_page(stdout)
+        stdout.flush()?;
+        Ok(())
     }
     fn draw_topbar(&self, mut stdout: &Stdout) -> io::Result<()> {
         queue!(
             stdout,
+            cursor::MoveTo(0, 0),
             style::SetBackgroundColor(style::Color::Grey),
             style::SetForegroundColor(style::Color::Black),
             terminal::Clear(terminal::ClearType::CurrentLine),
@@ -455,7 +458,7 @@ impl Toad {
                 }
             }
         }
-        execute!(stdout, style::ResetColor)
+        queue!(stdout, style::ResetColor)
     }
 }
 

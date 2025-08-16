@@ -101,6 +101,8 @@ pub static ELEMENT_TYPES: &[ElementType] = &[
         name: "pre",
         draw_ctx: ElementDrawContext {
             respect_whitespace: true,
+            width: Specified(Measurement::FitContentWidth),
+            height: Specified(Measurement::FitContentHeight),
             display: Specified(Display::Block),
             ..DEFAULT_DRAW_CTX
         },
@@ -110,6 +112,7 @@ pub static ELEMENT_TYPES: &[ElementType] = &[
         name: "p",
         draw_ctx: ElementDrawContext {
             display: Specified(Display::Block),
+            width: Specified(Measurement::FitContentWidth),
             ..DEFAULT_DRAW_CTX
         },
         ..DEFAULT_ELEMENT_TYPE
@@ -355,8 +358,6 @@ impl Element {
         }
         let screen_size = (global_ctx.width, global_ctx.height);
 
-        let mut min_move_y = 0;
-
         let width = style
             .width
             .map(|width| width.to_pixels(screen_size, self, global_ctx, parent_draw_ctx));
@@ -376,7 +377,6 @@ impl Element {
                 height / LH,
                 color,
             ));
-            min_move_y = height / LH;
         }
 
         if let Some(text) = &self.text
@@ -411,6 +411,7 @@ impl Element {
             global_ctx.x += width / EM;
         }
         if let Some(height) = height {
+            let min_move_y = height / LH;
             if move_y < min_move_y {
                 let amt = min_move_y - move_y;
                 global_ctx.y += amt;

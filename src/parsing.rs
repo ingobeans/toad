@@ -1,10 +1,10 @@
 use std::collections::HashMap;
 
 use crate::{
-    css::parse_stylesheet,
-    element::{get_element_type, Element, DEFAULT_ELEMENT_TYPE},
-    utils::*,
     Webpage,
+    css::parse_stylesheet,
+    element::{DEFAULT_ELEMENT_TYPE, Element, get_element_type},
+    utils::*,
 };
 
 enum ParseState {
@@ -25,10 +25,10 @@ fn find_title(element: &Element) -> Option<&Element> {
     None
 }
 fn get_all_styles(element: &Element, buf: &mut String) {
-    if element.ty.name == "style" {
-        if let Some(text) = &element.text {
-            *buf += text
-        }
+    if element.ty.name == "style"
+        && let Some(text) = &element.text
+    {
+        *buf += text
     }
     for child in element.children.iter() {
         get_all_styles(child, buf);

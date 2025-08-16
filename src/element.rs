@@ -1,14 +1,14 @@
 use std::{
     collections::HashMap,
     fmt::Debug,
-    io::{self, Stdout, Write},
+    io::{self, Write},
 };
 
 use crate::{
-    consts::*, css, Display, ElementDrawContext, GlobalDrawContext, Measurement,
-    NonInheritedField::*, DEFAULT_DRAW_CTX,
+    DEFAULT_DRAW_CTX, Display, DrawCall, ElementDrawContext, GlobalDrawContext, Measurement,
+    NonInheritedField::*, consts::*, css,
 };
-use crossterm::{cursor, queue, style, terminal};
+use crossterm::{queue, style};
 
 const RED: style::Color = style::Color::Red;
 
@@ -157,11 +157,11 @@ fn disrespect_whitespace(text: &str) -> String {
     let mut new = String::new();
     let mut last = None;
     for char in text.chars() {
-        if char.is_whitespace() {
-            if let Some(last_char) = last {
-                if last_char == char {
-                    continue;
-                }
+        if char.is_whitespace()
+            && let Some(last_char) = last
+        {
+            if last_char == char {
+                continue;
             }
             last = Some(char);
         } else {
@@ -244,30 +244,24 @@ impl Element {
         }
     }
     /// Gets the size of elements content/children by running a dry draw call and comparing how far the cursor is moved.
-    pub fn get_content_size<T: Write>(
+    pub fn get_content_size(
         &self,
         parent_draw_context: ElementDrawContext,
-        global_ctx: &GlobalDrawContext<T>,
+        global_ctx: &GlobalDrawContext,
     ) -> (u16, u16) {
         let style = self.get_active_style(global_ctx, parent_draw_context);
-        let mut fart: Vec<u8> = Vec::new();
         let mut ctx = GlobalDrawContext {
+            draw_calls: Vec::new(),
             width: global_ctx.width,
             height: global_ctx.height,
-            stdout: &mut fart,
             x: 0,
             y: 0,
-            max_x: 0,
-            max_y: 0,
-            actual_cursor_x: 0,
-            actual_cursor_y: 0,
-            last_draw_ctx: DEFAULT_DRAW_CTX,
             global_style: &global_ctx.global_style.clone(),
         };
         for child in self.children.iter() {
             let _ = child.draw(style, &mut ctx);
         }
-        (ctx.max_x, ctx.max_y + 1)
+        ctx.draw_area_size()
     }
     pub fn get_attribute(&self, k: &str) -> Option<&String> {
         self.attributes.get(k)
@@ -307,9 +301,9 @@ impl Element {
             self.ty.name, children_text, self.ty.name
         )
     }
-    pub fn get_active_style<T: Write>(
+    pub fn get_active_style(
         &self,
-        global_ctx: &GlobalDrawContext<T>,
+        global_ctx: &GlobalDrawContext,
         parent_draw_context: ElementDrawContext,
     ) -> ElementDrawContext {
         // construct this elements style by overlaying:
@@ -339,31 +333,16 @@ impl Element {
         style.display.inherit_from(parent_draw_context.display);
         style
     }
-    pub fn draw<T: Write>(
+    pub fn draw(
         &self,
         mut parent_draw_ctx: ElementDrawContext,
-        global_ctx: &mut GlobalDrawContext<T>,
+        global_ctx: &mut GlobalDrawContext,
     ) -> io::Result<()> {
         // construct this element's active style
         let style = self.get_active_style(global_ctx, parent_draw_ctx);
 
         if self.ty.stops_parsing || matches!(style.display, Specified(Display::None)) {
             return Ok(());
-        }
-
-        let is_body = self.ty.name == "body";
-
-        // hardcoded case for performance
-        if is_body {
-            let bg_color = style.background_color.unwrap_or(style::Color::White);
-            queue!(
-                global_ctx.stdout,
-                style::SetBackgroundColor(bg_color),
-                terminal::Clear(terminal::ClearType::FromCursorDown),
-                cursor::MoveTo(global_ctx.x, global_ctx.y)
-            )?;
-            global_ctx.actual_cursor_x = global_ctx.x;
-            global_ctx.actual_cursor_y = global_ctx.y;
         }
 
         let is_display_block = matches!(style.display, Specified(Display::Block));
@@ -382,31 +361,42 @@ impl Element {
         let height = style
             .height
             .map(|height| height.to_pixels(screen_size, self, global_ctx, parent_draw_ctx));
-        if !is_body
-            && is_display_block
-            && width.is_some()
-            && height.is_some()
-            && style.background_color.is_specified()
+        if is_display_block
+            && let Some(width) = width
+            && let Some(height) = height
+            && let Specified(color) = style.background_color
         {
             // draw background color over area
-            let (old_x, old_y) = (global_ctx.x, global_ctx.y);
-            global_ctx.draw_text(
-                &(" ".repeat((width.unwrap() / EM) as _) + "\n")
-                    .repeat((height.unwrap() / LH) as _),
-                style,
-            )?;
-            (global_ctx.x, global_ctx.y) = (old_x, old_y);
-            global_ctx.update_max();
+            global_ctx.draw_calls.push(DrawCall::Rect(
+                global_ctx.x,
+                global_ctx.y,
+                width / EM,
+                height / LH,
+                color,
+            ));
         }
 
-        if let Some(text) = &self.text {
-            if !is_whitespace(text) || parent_draw_ctx.respect_whitespace {
-                let text = if parent_draw_ctx.respect_whitespace {
-                    text.clone()
-                } else {
-                    disrespect_whitespace(text)
-                };
-                global_ctx.draw_text(&text, style)?;
+        if let Some(text) = &self.text
+            && (!is_whitespace(text) || parent_draw_ctx.respect_whitespace)
+        {
+            let text = if parent_draw_ctx.respect_whitespace {
+                text.clone()
+            } else {
+                disrespect_whitespace(text)
+            };
+            global_ctx.draw_calls.push(DrawCall::Text(
+                global_ctx.x,
+                global_ctx.y,
+                text.clone(),
+                style,
+            ));
+            let mut lines = text.lines().peekable();
+            while let Some(line) = lines.next() {
+                global_ctx.x += line.len() as u16;
+                if lines.peek().is_some() {
+                    global_ctx.x = 0;
+                    global_ctx.y += 1;
+                }
             }
         }
         for child in self.children.iter() {

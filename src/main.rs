@@ -6,9 +6,11 @@ use std::{
     str::FromStr,
 };
 
+use consts::*;
 use element::*;
 use parsing::*;
 
+mod consts;
 mod css;
 mod element;
 mod parsing;
@@ -34,6 +36,63 @@ enum Display {
     None,
 }
 #[derive(Clone, Copy, PartialEq)]
+enum Measurement {
+    FitContentWidth,
+    FitContentHeight,
+    PercentWidth(f32),
+    PercentHeight(f32),
+    Pixels(u16),
+}
+impl Measurement {
+    fn to_pixels(
+        &self,
+        screen_size: (u16, u16),
+        element: &Element,
+        global_ctx: &GlobalDrawContext,
+    ) -> u16 {
+        match &self {
+            Self::Pixels(pixels) => *pixels,
+            Self::PercentHeight(percent) => ((screen_size.1 as f32 * percent) * LH as f32) as u16,
+            Self::PercentWidth(percent) => ((screen_size.0 as f32 * percent) * EM as f32) as u16,
+            Self::FitContentWidth => {
+                let mut width = 0;
+                for child in &element.children {
+                    let cw = if child.ty.name == "node" {
+                        child.text.as_ref().map(|f| f.len()).unwrap_or(0) as u16 * EM
+                    } else if let Some(w) = child.get_active_style(global_ctx).width {
+                        w.to_pixels(screen_size, element, global_ctx)
+                    } else {
+                        continue;
+                    };
+                    if cw > width {
+                        width = cw;
+                    }
+                }
+                width
+            }
+            Self::FitContentHeight => {
+                let mut height = 0;
+                for child in &element.children {
+                    let cw = if child.ty.name == "node" {
+                        LH
+                    } else if let Some(w) = child.get_active_style(global_ctx).height {
+                        w.to_pixels(screen_size, element, global_ctx)
+                    } else {
+                        continue;
+                    };
+                    if cw > height {
+                        height = cw;
+                    }
+                }
+                height
+            }
+            _ => {
+                panic!()
+            }
+        }
+    }
+}
+#[derive(Clone, Copy, PartialEq)]
 struct ElementDrawContext {
     text_align: Option<TextAlignment>,
     foreground_color: Option<style::Color>,
@@ -42,6 +101,8 @@ struct ElementDrawContext {
     bold: bool,
     italics: bool,
     respect_whitespace: bool,
+    width: Option<Measurement>,
+    height: Option<Measurement>,
 }
 static DEFAULT_DRAW_CTX: ElementDrawContext = ElementDrawContext {
     text_align: None,
@@ -51,11 +112,15 @@ static DEFAULT_DRAW_CTX: ElementDrawContext = ElementDrawContext {
     bold: false,
     italics: false,
     respect_whitespace: false,
+    width: None,
+    height: None,
 };
 impl ElementDrawContext {
     fn merge_all(&mut self, other: &ElementDrawContext) {
         self.merge(other);
         self.display = other.display.or(self.display);
+        self.width = other.width.or(self.width);
+        self.height = other.height.or(self.height);
     }
     fn merge(&mut self, other: &ElementDrawContext) {
         self.text_align = other.text_align.or(self.text_align);
@@ -64,7 +129,7 @@ impl ElementDrawContext {
         self.bold |= other.bold;
         self.italics |= other.italics;
         self.respect_whitespace |= other.respect_whitespace;
-        // dont merge display, since it isnt inherited
+        // dont merge properties like display, width or height since they arent inherited
     }
 }
 
@@ -84,7 +149,6 @@ impl StyleTarget {
     }
 }
 
-#[expect(dead_code)]
 #[derive(Clone)]
 struct GlobalDrawContext<'a> {
     width: u16,
@@ -139,7 +203,9 @@ struct Toad {
 impl Toad {
     fn new(tabs: Vec<Webpage>) -> Result<Self, reqwest::Error> {
         let client = Client::builder()
-            .user_agent(format!("toad/{}", env!("CARGO_PKG_VERSION")))
+            .user_agent(
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:141.0) Gecko/20100101 Firefox/141.0",
+            )
             .build()?;
         Ok(Self {
             tabs,
@@ -252,7 +318,7 @@ impl Toad {
     fn clear_screen(&self, mut stdout: &Stdout) -> io::Result<()> {
         queue!(
             stdout,
-            terminal::Clear(terminal::ClearType::All),
+            terminal::Clear(terminal::ClearType::Purge),
             cursor::MoveTo(0, 0),
             cursor::Hide,
         )

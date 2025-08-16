@@ -4,8 +4,10 @@ use std::{
     io::{self, Stdout},
 };
 
-use crate::{css, Display, ElementDrawContext, GlobalDrawContext, DEFAULT_DRAW_CTX};
-use crossterm::{queue, style};
+use crate::{
+    consts::*, css, Display, ElementDrawContext, GlobalDrawContext, Measurement, DEFAULT_DRAW_CTX,
+};
+use crossterm::{cursor, queue, style, terminal};
 
 const RED: style::Color = style::Color::Red;
 
@@ -72,6 +74,13 @@ pub static ELEMENT_TYPES: &[ElementType] = &[
     },
     ElementType {
         name: "body",
+        draw_ctx: ElementDrawContext {
+            width: Some(Measurement::PercentWidth(1.0)),
+            height: Some(Measurement::PercentHeight(1.0)),
+            background_color: Some(style::Color::White),
+            display: Some(Display::Block),
+            ..DEFAULT_DRAW_CTX
+        },
         ..DEFAULT_ELEMENT_TYPE
     },
     ElementType {
@@ -96,6 +105,8 @@ pub static ELEMENT_TYPES: &[ElementType] = &[
         name: "p",
         draw_ctx: ElementDrawContext {
             display: Some(Display::Block),
+            foreground_color: Some(style::Color::Black),
+            background_color: Some(style::Color::White),
             ..DEFAULT_DRAW_CTX
         },
         ..DEFAULT_ELEMENT_TYPE
@@ -164,10 +175,9 @@ pub fn apply_draw_ctx(
     old_ctx: &mut ElementDrawContext,
     mut stdout: &Stdout,
 ) -> io::Result<()> {
-    let needs_clearing = (!draw_ctx.bold && old_ctx.bold)
-        || (!draw_ctx.italics && old_ctx.italics)
-        || (draw_ctx.foreground_color.is_none() && old_ctx.foreground_color.is_some())
-        || (draw_ctx.background_color.is_none() && old_ctx.background_color.is_some());
+    let needs_clearing = (!draw_ctx.bold && old_ctx.bold) || (!draw_ctx.italics && old_ctx.italics);
+    let foreground_color = draw_ctx.foreground_color.unwrap_or(style::Color::Black);
+    let background_color = draw_ctx.background_color.unwrap_or(style::Color::White);
 
     if needs_clearing {
         queue!(stdout, style::ResetColor)?;
@@ -187,8 +197,8 @@ pub fn apply_draw_ctx(
     queue!(
         stdout,
         style::SetStyle(style::ContentStyle {
-            foreground_color: draw_ctx.foreground_color,
-            background_color: draw_ctx.background_color,
+            foreground_color: Some(foreground_color),
+            background_color: Some(background_color),
             attributes,
             ..Default::default()
         })
@@ -262,11 +272,7 @@ impl Element {
             self.ty.name, children_text, self.ty.name
         )
     }
-    pub fn draw(
-        &self,
-        mut element_draw_ctx: ElementDrawContext,
-        global_ctx: &mut GlobalDrawContext,
-    ) -> io::Result<()> {
+    pub fn get_active_style(&self, global_ctx: &GlobalDrawContext) -> ElementDrawContext {
         // construct this elements style by overlaying:
         //  - the base element's style
         //  - matching global styles
@@ -278,18 +284,69 @@ impl Element {
                 style.merge_all(v);
             }
         }
-        style.merge(&self.style);
+        style.merge_all(&self.style);
+        style
+    }
+    pub fn draw(
+        &self,
+        mut element_draw_ctx: ElementDrawContext,
+        global_ctx: &mut GlobalDrawContext,
+    ) -> io::Result<()> {
+        // construct this element's active style
+        let style = self.get_active_style(&global_ctx);
+
         if self.ty.stops_parsing || matches!(style.display, Some(Display::None)) {
             return Ok(());
         }
-        element_draw_ctx.merge(&style);
+
+        let is_body = self.ty.name == "body";
+
+        // hardcoded case for performance
+        if is_body {
+            let bg_color = style.background_color.unwrap_or(style::Color::White);
+            queue!(
+                global_ctx.stdout,
+                style::SetBackgroundColor(bg_color),
+                terminal::Clear(terminal::ClearType::FromCursorDown),
+                cursor::MoveTo(global_ctx.x, global_ctx.y)
+            )?;
+            global_ctx.actual_cursor_x = global_ctx.x;
+            global_ctx.actual_cursor_y = global_ctx.y;
+        }
 
         let is_display_block = matches!(style.display, Some(Display::Block));
+
+        element_draw_ctx.merge(&style);
 
         if is_display_block && global_ctx.x != 0 {
             global_ctx.y += 1;
             global_ctx.x = 0;
         }
+        let screen_size = (global_ctx.width, global_ctx.height);
+
+        let width = style
+            .width
+            .map(|width| width.to_pixels(screen_size, &self, &global_ctx));
+        let height = style
+            .height
+            .map(|height| height.to_pixels(screen_size, &self, &global_ctx));
+
+        if !is_body
+            && is_display_block
+            && width.is_some()
+            && height.is_some()
+            && style.background_color.is_some()
+        {
+            // draw background color over area
+            let (old_x, old_y) = (global_ctx.x, global_ctx.y);
+            global_ctx.draw_text(
+                &(" ".repeat((width.unwrap() / EM) as _) + "\n")
+                    .repeat((height.unwrap() / LH) as _),
+                style,
+            )?;
+            (global_ctx.x, global_ctx.y) = (old_x, old_y);
+        }
+
         if let Some(text) = &self.text {
             if !is_whitespace(text) || element_draw_ctx.respect_whitespace {
                 let text = if element_draw_ctx.respect_whitespace {
@@ -303,8 +360,11 @@ impl Element {
         for child in self.children.iter() {
             child.draw(element_draw_ctx, global_ctx)?;
         }
-        if is_display_block {
-            global_ctx.y += 1;
+        if let Some(width) = width {
+            global_ctx.x += width / EM;
+        }
+        if let Some(height) = height {
+            global_ctx.y += height / LH;
             global_ctx.x = 0;
         }
         Ok(())

@@ -2,7 +2,10 @@ use std::collections::HashMap;
 
 use crossterm::style;
 
-use crate::{utils::*, Display, ElementDrawContext, StyleTarget, TextAlignment, DEFAULT_DRAW_CTX};
+use crate::{
+    consts::*, utils::*, Display, ElementDrawContext, Measurement, StyleTarget, TextAlignment,
+    DEFAULT_DRAW_CTX,
+};
 
 fn hex_to_rgb(value: u32) -> style::Color {
     style::Color::Rgb {
@@ -77,6 +80,62 @@ fn parse_display_mode(text: &str) -> Option<Display> {
         _ => None,
     }
 }
+fn parse_measurement(text: &str) -> Option<Measurement> {
+    if text.ends_with("px") {
+        text.trim_end_matches("px")
+            .parse::<u16>()
+            .ok()
+            .map(|f| Measurement::Pixels(f))
+    } else if text.ends_with("em") {
+        text.trim_end_matches("em")
+            .parse::<u16>()
+            .ok()
+            .map(|f| Measurement::Pixels(f * EM))
+    } else if text.ends_with("lh") {
+        text.trim_end_matches("lh")
+            .parse::<u16>()
+            .ok()
+            .map(|f| Measurement::Pixels(f * LH))
+    } else {
+        None
+    }
+}
+fn parse_horizontal_measurement(text: &str) -> Option<Measurement> {
+    if text.ends_with("%") {
+        text.trim_end_matches("%")
+            .parse::<f32>()
+            .ok()
+            .map(|f| Measurement::PercentWidth(f / 100.0))
+    } else {
+        parse_measurement(text)
+    }
+}
+fn parse_vertical_measurement(text: &str) -> Option<Measurement> {
+    if text.ends_with("%") {
+        text.trim_end_matches("%")
+            .parse::<f32>()
+            .ok()
+            .map(|f| Measurement::PercentHeight(f / 100.0))
+    } else {
+        parse_measurement(text)
+    }
+}
+fn parse_width(text: &str) -> Option<Measurement> {
+    if text == "fit-content" {
+        Some(Measurement::FitContentWidth)
+    } else {
+        parse_horizontal_measurement(text)
+    }
+}
+
+fn parse_height(text: &str) -> Option<Measurement> {
+    if text == "fit-content" {
+        Some(Measurement::FitContentHeight)
+    } else {
+        parse_vertical_measurement(text)
+    }
+}
+
 fn try_apply_rule(ctx: &mut ElementDrawContext, rule: &str) {
     let Some((key, value)) = rule.split_once(':') else {
         return;
@@ -101,6 +160,16 @@ fn try_apply_rule(ctx: &mut ElementDrawContext, rule: &str) {
         "display" => {
             if let Some(display_mode) = parse_display_mode(value) {
                 ctx.display = Some(display_mode);
+            }
+        }
+        "width" => {
+            if let Some(width) = parse_width(value) {
+                ctx.width = Some(width);
+            }
+        }
+        "height" => {
+            if let Some(height) = parse_height(value) {
+                ctx.height = Some(height);
             }
         }
         _ => {}

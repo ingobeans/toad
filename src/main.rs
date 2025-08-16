@@ -44,89 +44,106 @@ enum Measurement {
     Pixels(u16),
 }
 impl Measurement {
-    fn to_pixels(
+    fn to_pixels<T: Write>(
         self,
         screen_size: (u16, u16),
         element: &Element,
-        global_ctx: &GlobalDrawContext,
+        global_ctx: &GlobalDrawContext<T>,
+        draw_ctx: ElementDrawContext,
     ) -> u16 {
         match &self {
             Self::Pixels(pixels) => *pixels,
             Self::PercentHeight(percent) => ((screen_size.1 as f32 * percent) * LH as f32) as u16,
             Self::PercentWidth(percent) => ((screen_size.0 as f32 * percent) * EM as f32) as u16,
-            Self::FitContentWidth => {
-                let mut width = 0;
-                for child in &element.children {
-                    let cw = if child.ty.name == "node" {
-                        child.text.as_ref().map(|f| f.len()).unwrap_or(0) as u16 * EM
-                    } else if let Some(w) = child.get_active_style(global_ctx).width {
-                        w.to_pixels(screen_size, element, global_ctx)
-                    } else {
-                        continue;
-                    };
-                    if cw > width {
-                        width = cw;
-                    }
-                }
-                width
-            }
-            Self::FitContentHeight => {
-                let mut height = 0;
-                for child in &element.children {
-                    let cw = if child.ty.name == "node" {
-                        LH
-                    } else if let Some(w) = child.get_active_style(global_ctx).height {
-                        w.to_pixels(screen_size, element, global_ctx)
-                    } else {
-                        continue;
-                    };
-                    if cw > height {
-                        height = cw;
-                    }
-                }
-                height
-            }
+            Self::FitContentWidth => element.get_content_size(draw_ctx, global_ctx).0 * EM,
+            Self::FitContentHeight => element.get_content_size(draw_ctx, global_ctx).1 * LH,
         }
     }
 }
+
+#[derive(Clone, Copy, PartialEq, Debug)]
+/// For CSS properties that are not inherited by default. They can either be unset, forced to inherit, or have a specified value.
+/// This is the alternative to the other CSS fields which are only represented by an [Option], as they are either unset or specfified, and automatically inherit when unset.
+enum NonInheritedField<T> {
+    Unset,
+    Inherit,
+    Specified(T),
+}
+impl<T> NonInheritedField<T> {
+    fn inherit_from(&mut self, b: Self) {
+        if let Inherit = self {
+            *self = b;
+        }
+    }
+    fn map<A, F>(self, f: F) -> Option<A>
+    where
+        F: FnOnce(T) -> A,
+    {
+        match self {
+            Specified(x) => Some(f(x)),
+            _ => None,
+        }
+    }
+    fn is_specified(&self) -> bool {
+        match &self {
+            Specified(_) => true,
+            _ => false,
+        }
+    }
+    fn unwrap_or(self, other: T) -> T {
+        match self {
+            Specified(v) => v,
+            _ => other,
+        }
+    }
+    fn set_or(self, other: Self) -> Self {
+        match &self {
+            Unset => other,
+            _ => self,
+        }
+    }
+}
+use NonInheritedField::*;
+
 #[derive(Clone, Copy, PartialEq)]
 struct ElementDrawContext {
     text_align: Option<TextAlignment>,
     foreground_color: Option<style::Color>,
-    background_color: Option<style::Color>,
-    display: Option<Display>,
+    background_color: NonInheritedField<style::Color>,
+    display: NonInheritedField<Display>,
     bold: bool,
     italics: bool,
     respect_whitespace: bool,
-    width: Option<Measurement>,
-    height: Option<Measurement>,
+    width: NonInheritedField<Measurement>,
+    height: NonInheritedField<Measurement>,
 }
 static DEFAULT_DRAW_CTX: ElementDrawContext = ElementDrawContext {
     text_align: None,
     foreground_color: None,
-    background_color: None,
-    display: None,
+    background_color: Unset,
+    display: Unset,
     bold: false,
     italics: false,
     respect_whitespace: false,
-    width: None,
-    height: None,
+    width: Unset,
+    height: Unset,
 };
 impl ElementDrawContext {
-    fn merge_all(&mut self, other: &ElementDrawContext) {
-        self.merge(other);
-        self.display = other.display.or(self.display);
-        self.width = other.width.or(self.width);
-        self.height = other.height.or(self.height);
-    }
-    fn merge(&mut self, other: &ElementDrawContext) {
+    /// Merges this context with another, exclusively copying inherited fields
+    fn merge_inherit(&mut self, other: &ElementDrawContext) {
         self.text_align = other.text_align.or(self.text_align);
         self.foreground_color = other.foreground_color.or(self.foreground_color);
-        self.background_color = other.background_color.or(self.background_color);
         self.bold |= other.bold;
         self.italics |= other.italics;
         self.respect_whitespace |= other.respect_whitespace;
-        // dont merge properties like display, width or height since they arent inherited
+    }
+    /// Merges this context with another, copying all unset fields
+    fn merge_all(&mut self, other: &ElementDrawContext) {
+        self.merge_inherit(other);
+        self.display = other.display.set_or(self.display);
+        self.width = other.width.set_or(self.width);
+        self.height = other.height.set_or(self.height);
+        self.background_color = other.background_color.set_or(self.background_color);
     }
 }
 
@@ -146,19 +163,35 @@ impl StyleTarget {
     }
 }
 
-#[derive(Clone)]
-struct GlobalDrawContext<'a> {
+struct GlobalDrawContext<'a, T: Write> {
+    /// Screen's width
     width: u16,
+    /// Screen's height
     height: u16,
+    /// The "cursor" x, i.e. where to start drawing the next element
     x: u16,
+    /// The "cursor" y, i.e. where to start drawing the next element
     y: u16,
+    /// Tracks the max value the x ever reached
+    max_x: u16,
+    /// Tracks the max value the y ever reached
+    max_y: u16,
+    /// Tracks the actual location of the cursor in the terminal.
     actual_cursor_x: u16,
+    /// Tracks the actual location of the cursor in the terminal.
     actual_cursor_y: u16,
-    stdout: &'a Stdout,
+    stdout: &'a mut T,
+    /// The draw ctx that was used for the most recent draw call.
     last_draw_ctx: ElementDrawContext,
+    /// The global CSS stylesheet
     global_style: &'a HashMap<StyleTarget, ElementDrawContext>,
 }
-impl GlobalDrawContext<'_> {
+impl<T: Write> GlobalDrawContext<'_, T> {
+    /// Update [GlobalDrawContext::max_x] and [GlobalDrawContext::max_y]
+    fn update_max(&mut self) {
+        self.max_x = self.max_x.max(self.x);
+        self.max_y = self.max_y.max(self.y);
+    }
     fn draw_line(&mut self, text: &str, draw_ctx: ElementDrawContext) -> io::Result<()> {
         let text_len = text.len() as u16;
         let offset_x = match draw_ctx.text_align {
@@ -171,15 +204,16 @@ impl GlobalDrawContext<'_> {
         if self.x != self.actual_cursor_x || self.y != self.actual_cursor_y {
             queue!(self.stdout, cursor::MoveTo(self.x, self.y))?
         }
-        apply_draw_ctx(draw_ctx, &mut self.last_draw_ctx, self.stdout)?;
-        self.stdout.lock().write_all(text.as_bytes())?;
+        self.stdout.write_all(text.as_bytes())?;
         self.x += text_len;
         self.actual_cursor_x = self.x;
         self.actual_cursor_y = self.y;
+        self.update_max();
 
         Ok(())
     }
     fn draw_text(&mut self, text: &str, draw_ctx: ElementDrawContext) -> io::Result<()> {
+        apply_draw_ctx(draw_ctx, &mut self.last_draw_ctx, self.stdout)?;
         let start_x = self.x;
         let mut lines = text.lines().peekable();
         while let Some(line) = lines.next() {
@@ -332,9 +366,11 @@ impl Toad {
             height,
             x,
             y,
+            max_x: x,
+            max_y: y,
             actual_cursor_x: 0,
             actual_cursor_y: 0,
-            stdout,
+            stdout: &mut stdout.lock(),
             last_draw_ctx: DEFAULT_DRAW_CTX,
             global_style: &tab.global_style,
         };

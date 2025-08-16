@@ -3,8 +3,8 @@ use std::collections::HashMap;
 use crossterm::style;
 
 use crate::{
-    consts::*, utils::*, Display, ElementDrawContext, Measurement, StyleTarget, TextAlignment,
-    DEFAULT_DRAW_CTX,
+    consts::*, utils::*, Display, ElementDrawContext, Measurement, NonInheritedField::*,
+    StyleTarget, TextAlignment, DEFAULT_DRAW_CTX,
 };
 
 fn hex_to_rgb(value: u32) -> style::Color {
@@ -148,8 +148,10 @@ fn try_apply_rule(ctx: &mut ElementDrawContext, rule: &str) {
             }
         }
         "background-color" => {
-            if let Some(color) = parse_color(value) {
-                ctx.background_color = Some(color);
+            if value == "inherit" {
+                ctx.background_color = Inherit;
+            } else if let Some(color) = parse_color(value) {
+                ctx.background_color = Specified(color);
             }
         }
         "text-align" => {
@@ -158,18 +160,24 @@ fn try_apply_rule(ctx: &mut ElementDrawContext, rule: &str) {
             }
         }
         "display" => {
-            if let Some(display_mode) = parse_display_mode(value) {
-                ctx.display = Some(display_mode);
+            if value == "inherit" {
+                ctx.display = Inherit;
+            } else if let Some(display_mode) = parse_display_mode(value) {
+                ctx.display = Specified(display_mode);
             }
         }
         "width" => {
-            if let Some(width) = parse_width(value) {
-                ctx.width = Some(width);
+            if value == "inherit" {
+                ctx.width = Inherit;
+            } else if let Some(width) = parse_width(value) {
+                ctx.width = Specified(width);
             }
         }
         "height" => {
-            if let Some(height) = parse_height(value) {
-                ctx.height = Some(height);
+            if value == "inherit" {
+                ctx.height = Inherit;
+            } else if let Some(height) = parse_height(value) {
+                ctx.height = Specified(height);
             }
         }
         _ => {}
@@ -208,7 +216,7 @@ pub fn parse_stylesheet(text: &str, style: &mut HashMap<StyleTarget, ElementDraw
                 StyleTarget::ElementType(specifier.to_string())
             };
             if let Some(old) = style.get_mut(&target) {
-                old.merge(&ctx);
+                old.merge_all(&ctx);
             } else {
                 style.insert(target, ctx);
             }

@@ -1,11 +1,12 @@
 use std::{
     collections::HashMap,
     fmt::Debug,
-    io::{self, Stdout},
+    io::{self, Stdout, Write},
 };
 
 use crate::{
-    consts::*, css, Display, ElementDrawContext, GlobalDrawContext, Measurement, DEFAULT_DRAW_CTX,
+    consts::*, css, Display, ElementDrawContext, GlobalDrawContext, Measurement,
+    NonInheritedField::*, DEFAULT_DRAW_CTX,
 };
 use crossterm::{cursor, queue, style, terminal};
 
@@ -30,7 +31,7 @@ static H1: ElementType = ElementType {
     draw_ctx: ElementDrawContext {
         bold: true,
         foreground_color: Some(RED),
-        display: Some(Display::Block),
+        display: Specified(Display::Block),
         ..DEFAULT_DRAW_CTX
     },
     ..DEFAULT_ELEMENT_TYPE
@@ -38,6 +39,10 @@ static H1: ElementType = ElementType {
 pub static ELEMENT_TYPES: &[ElementType] = &[
     ElementType {
         name: "node",
+        draw_ctx: ElementDrawContext {
+            background_color: Inherit,
+            ..DEFAULT_DRAW_CTX
+        },
         ..DEFAULT_ELEMENT_TYPE
     },
     ElementType {
@@ -53,7 +58,7 @@ pub static ELEMENT_TYPES: &[ElementType] = &[
         name: "br",
         void_element: true,
         draw_ctx: ElementDrawContext {
-            display: Some(Display::Block),
+            display: Specified(Display::Block),
             ..DEFAULT_DRAW_CTX
         },
         ..DEFAULT_ELEMENT_TYPE
@@ -75,10 +80,10 @@ pub static ELEMENT_TYPES: &[ElementType] = &[
     ElementType {
         name: "body",
         draw_ctx: ElementDrawContext {
-            width: Some(Measurement::PercentWidth(1.0)),
-            height: Some(Measurement::PercentHeight(1.0)),
-            background_color: Some(DEFAULT_BACKGROUND_COLOR),
-            display: Some(Display::Block),
+            width: Specified(Measurement::PercentWidth(1.0)),
+            height: Specified(Measurement::PercentHeight(1.0)),
+            background_color: Specified(DEFAULT_BACKGROUND_COLOR),
+            display: Specified(Display::Block),
             ..DEFAULT_DRAW_CTX
         },
         ..DEFAULT_ELEMENT_TYPE
@@ -96,7 +101,7 @@ pub static ELEMENT_TYPES: &[ElementType] = &[
         name: "pre",
         draw_ctx: ElementDrawContext {
             respect_whitespace: true,
-            display: Some(Display::Block),
+            display: Specified(Display::Block),
             ..DEFAULT_DRAW_CTX
         },
         ..DEFAULT_ELEMENT_TYPE
@@ -104,9 +109,7 @@ pub static ELEMENT_TYPES: &[ElementType] = &[
     ElementType {
         name: "p",
         draw_ctx: ElementDrawContext {
-            display: Some(Display::Block),
-            foreground_color: Some(DEFAULT_FOREGROUND_COLOR),
-            background_color: Some(DEFAULT_BACKGROUND_COLOR),
+            display: Specified(Display::Block),
             ..DEFAULT_DRAW_CTX
         },
         ..DEFAULT_ELEMENT_TYPE
@@ -122,7 +125,8 @@ pub static ELEMENT_TYPES: &[ElementType] = &[
     ElementType {
         name: "div",
         draw_ctx: ElementDrawContext {
-            display: Some(Display::Block),
+            display: Specified(Display::Block),
+            height: Specified(Measurement::FitContentHeight),
             ..DEFAULT_DRAW_CTX
         },
         ..DEFAULT_ELEMENT_TYPE
@@ -170,14 +174,19 @@ fn disrespect_whitespace(text: &str) -> String {
 fn is_whitespace(text: &str) -> bool {
     text.chars().all(|c| c.is_whitespace())
 }
-pub fn apply_draw_ctx(
+pub fn apply_draw_ctx<T: Write>(
     draw_ctx: ElementDrawContext,
     old_ctx: &mut ElementDrawContext,
-    mut stdout: &Stdout,
+    stdout: &mut T,
 ) -> io::Result<()> {
+    if *old_ctx == draw_ctx {
+        return Ok(());
+    }
     let needs_clearing = (!draw_ctx.bold && old_ctx.bold) || (!draw_ctx.italics && old_ctx.italics);
     let foreground_color = draw_ctx.foreground_color.unwrap_or(style::Color::Black);
-    let background_color = draw_ctx.background_color.unwrap_or(style::Color::White);
+    let background_color = draw_ctx
+        .background_color
+        .unwrap_or(DEFAULT_BACKGROUND_COLOR);
 
     if needs_clearing {
         queue!(stdout, style::ResetColor)?;
@@ -234,6 +243,32 @@ impl Element {
             text: None,
         }
     }
+    /// Gets the size of elements content/children by running a dry draw call and comparing how far the cursor is moved.
+    pub fn get_content_size<T: Write>(
+        &self,
+        parent_draw_context: ElementDrawContext,
+        global_ctx: &GlobalDrawContext<T>,
+    ) -> (u16, u16) {
+        let style = self.get_active_style(global_ctx, parent_draw_context);
+        let mut fart: Vec<u8> = Vec::new();
+        let mut ctx = GlobalDrawContext {
+            width: global_ctx.width,
+            height: global_ctx.height,
+            stdout: &mut fart,
+            x: 0,
+            y: 0,
+            max_x: 0,
+            max_y: 0,
+            actual_cursor_x: 0,
+            actual_cursor_y: 0,
+            last_draw_ctx: DEFAULT_DRAW_CTX,
+            global_style: &global_ctx.global_style.clone(),
+        };
+        for child in self.children.iter() {
+            let _ = child.draw(style, &mut ctx);
+        }
+        (ctx.max_x, ctx.max_y + 1)
+    }
     pub fn get_attribute(&self, k: &str) -> Option<&String> {
         self.attributes.get(k)
     }
@@ -272,30 +307,47 @@ impl Element {
             self.ty.name, children_text, self.ty.name
         )
     }
-    pub fn get_active_style(&self, global_ctx: &GlobalDrawContext) -> ElementDrawContext {
+    pub fn get_active_style<T: Write>(
+        &self,
+        global_ctx: &GlobalDrawContext<T>,
+        parent_draw_context: ElementDrawContext,
+    ) -> ElementDrawContext {
         // construct this elements style by overlaying:
+        //  - parent style
         //  - the base element's style
         //  - matching global styles
         //  - inline css
 
         let mut style = self.ty.draw_ctx;
+        // merge_inherit will only fill inherited, unset fields of style
+        style.merge_inherit(&parent_draw_context);
+
         for (k, v) in global_ctx.global_style.iter() {
             if k.matches(self) {
                 style.merge_all(v);
             }
         }
         style.merge_all(&self.style);
+
+        // check all NonInheritedFields in case they are set to inherit, if so, inherit from parent_draw_context
+
+        style
+            .background_color
+            .inherit_from(parent_draw_context.background_color);
+        style.width.inherit_from(parent_draw_context.width);
+        style.height.inherit_from(parent_draw_context.height);
+        style.display.inherit_from(parent_draw_context.display);
         style
     }
-    pub fn draw(
+    pub fn draw<T: Write>(
         &self,
-        mut element_draw_ctx: ElementDrawContext,
-        global_ctx: &mut GlobalDrawContext,
+        mut parent_draw_ctx: ElementDrawContext,
+        global_ctx: &mut GlobalDrawContext<T>,
     ) -> io::Result<()> {
         // construct this element's active style
-        let style = self.get_active_style(global_ctx);
+        let style = self.get_active_style(global_ctx, parent_draw_ctx);
 
-        if self.ty.stops_parsing || matches!(style.display, Some(Display::None)) {
+        if self.ty.stops_parsing || matches!(style.display, Specified(Display::None)) {
             return Ok(());
         }
 
@@ -314,9 +366,9 @@ impl Element {
             global_ctx.actual_cursor_y = global_ctx.y;
         }
 
-        let is_display_block = matches!(style.display, Some(Display::Block));
+        let is_display_block = matches!(style.display, Specified(Display::Block));
 
-        element_draw_ctx.merge(&style);
+        parent_draw_ctx = style;
 
         if is_display_block && global_ctx.x != 0 {
             global_ctx.y += 1;
@@ -326,16 +378,15 @@ impl Element {
 
         let width = style
             .width
-            .map(|width| width.to_pixels(screen_size, self, global_ctx));
+            .map(|width| width.to_pixels(screen_size, self, global_ctx, parent_draw_ctx));
         let height = style
             .height
-            .map(|height| height.to_pixels(screen_size, self, global_ctx));
-
+            .map(|height| height.to_pixels(screen_size, self, global_ctx, parent_draw_ctx));
         if !is_body
             && is_display_block
             && width.is_some()
             && height.is_some()
-            && style.background_color.is_some()
+            && style.background_color.is_specified()
         {
             // draw background color over area
             let (old_x, old_y) = (global_ctx.x, global_ctx.y);
@@ -345,26 +396,30 @@ impl Element {
                 style,
             )?;
             (global_ctx.x, global_ctx.y) = (old_x, old_y);
+            global_ctx.update_max();
         }
 
         if let Some(text) = &self.text {
-            if !is_whitespace(text) || element_draw_ctx.respect_whitespace {
-                let text = if element_draw_ctx.respect_whitespace {
+            if !is_whitespace(text) || parent_draw_ctx.respect_whitespace {
+                let text = if parent_draw_ctx.respect_whitespace {
                     text.clone()
                 } else {
                     disrespect_whitespace(text)
                 };
-                global_ctx.draw_text(&text, element_draw_ctx)?;
+                global_ctx.draw_text(&text, style)?;
             }
         }
         for child in self.children.iter() {
-            child.draw(element_draw_ctx, global_ctx)?;
+            child.draw(style, global_ctx)?;
         }
         if let Some(width) = width {
             global_ctx.x += width / EM;
         }
         if let Some(height) = height {
             global_ctx.y += height / LH;
+            global_ctx.x = 0;
+        } else if is_display_block {
+            global_ctx.y += 1;
             global_ctx.x = 0;
         }
         Ok(())

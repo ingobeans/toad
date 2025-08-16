@@ -85,7 +85,7 @@ fn parse_measurement(text: &str) -> Option<Measurement> {
         text.trim_end_matches("px")
             .parse::<u16>()
             .ok()
-            .map(|f| Measurement::Pixels(f))
+            .map(Measurement::Pixels)
     } else if text.ends_with("em") {
         text.trim_end_matches("em")
             .parse::<u16>()

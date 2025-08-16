@@ -77,7 +77,7 @@ pub static ELEMENT_TYPES: &[ElementType] = &[
         draw_ctx: ElementDrawContext {
             width: Some(Measurement::PercentWidth(1.0)),
             height: Some(Measurement::PercentHeight(1.0)),
-            background_color: Some(style::Color::White),
+            background_color: Some(DEFAULT_BACKGROUND_COLOR),
             display: Some(Display::Block),
             ..DEFAULT_DRAW_CTX
         },
@@ -105,8 +105,8 @@ pub static ELEMENT_TYPES: &[ElementType] = &[
         name: "p",
         draw_ctx: ElementDrawContext {
             display: Some(Display::Block),
-            foreground_color: Some(style::Color::Black),
-            background_color: Some(style::Color::White),
+            foreground_color: Some(DEFAULT_FOREGROUND_COLOR),
+            background_color: Some(DEFAULT_BACKGROUND_COLOR),
             ..DEFAULT_DRAW_CTX
         },
         ..DEFAULT_ELEMENT_TYPE
@@ -293,7 +293,7 @@ impl Element {
         global_ctx: &mut GlobalDrawContext,
     ) -> io::Result<()> {
         // construct this element's active style
-        let style = self.get_active_style(&global_ctx);
+        let style = self.get_active_style(global_ctx);
 
         if self.ty.stops_parsing || matches!(style.display, Some(Display::None)) {
             return Ok(());
@@ -326,10 +326,10 @@ impl Element {
 
         let width = style
             .width
-            .map(|width| width.to_pixels(screen_size, &self, &global_ctx));
+            .map(|width| width.to_pixels(screen_size, self, global_ctx));
         let height = style
             .height
-            .map(|height| height.to_pixels(screen_size, &self, &global_ctx));
+            .map(|height| height.to_pixels(screen_size, self, global_ctx));
 
         if !is_body
             && is_display_block

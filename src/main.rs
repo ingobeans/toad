@@ -45,7 +45,7 @@ enum Measurement {
 }
 impl Measurement {
     fn to_pixels(
-        &self,
+        self,
         screen_size: (u16, u16),
         element: &Element,
         global_ctx: &GlobalDrawContext,
@@ -85,9 +85,6 @@ impl Measurement {
                     }
                 }
                 height
-            }
-            _ => {
-                panic!()
             }
         }
     }

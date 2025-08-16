@@ -148,9 +148,13 @@ impl Toad {
         })
     }
     async fn get_url(&self, url: Url) -> Option<Webpage> {
-        let response = self.client.get(url).send().await.ok()?;
+        let response = self.client.get(url.clone()).send().await.ok()?;
         let data = response.text().await.ok()?;
-        parse_html(&data)
+        let page = parse_html(&data);
+        page.map(|mut f| {
+            f.url = Some(url);
+            f
+        })
     }
     async fn run(&mut self) -> io::Result<()> {
         let mut running = true;
@@ -184,7 +188,7 @@ impl Toad {
                         terminal::disable_raw_mode()?;
                         execute!(
                             stdout,
-                            cursor::MoveTo(0, 0),
+                            cursor::MoveTo(0, 1),
                             terminal::Clear(terminal::ClearType::CurrentLine),
                             cursor::Show
                         )?;
@@ -237,6 +241,11 @@ impl Toad {
                 print!("[{text}] ");
             }
         }
+        queue!(stdout, cursor::MoveToNextLine(1))?;
+        queue!(stdout, terminal::Clear(terminal::ClearType::CurrentLine))?;
+        if let Some(Some(url)) = self.tabs.get(self.tab_index).map(|f| &f.url) {
+            print!("{url}")
+        }
         queue!(stdout, style::ResetColor)?;
         Ok(())
     }
@@ -253,7 +262,7 @@ impl Toad {
             return Ok(());
         };
         let x = 0;
-        let y = 1;
+        let y = 2;
         let (width, height) = terminal::size()?;
         let mut ctx = GlobalDrawContext {
             width,

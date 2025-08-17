@@ -49,9 +49,9 @@ pub fn parse_html(text: &str) -> Option<Webpage> {
     }
     root.map(|root| Webpage {
         title,
-        url: None,
-        root: Some(root),
         global_style,
+        root: Some(root),
+        ..Default::default()
     })
 }
 

@@ -167,10 +167,8 @@ fn try_apply_rule(ctx: &mut ElementDrawContext, rule: &str) {
             }
         }
         "width" => {
-            if value == "inherit" {
-                ctx.width = Inherit;
-            } else if let Some(width) = parse_width(value) {
-                ctx.width = Specified(width);
+            if let Some(width) = parse_width(value) {
+                ctx.width = Some(width);
             }
         }
         "height" => {

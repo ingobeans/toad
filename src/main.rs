@@ -23,6 +23,7 @@ struct Webpage {
     url: Option<Url>,
     root: Option<Element>,
     global_style: HashMap<StyleTarget, ElementDrawContext>,
+    scroll_y: usize,
 }
 #[derive(Clone, Copy, PartialEq)]
 enum TextAlignment {
@@ -43,6 +44,12 @@ enum ActualMeasurement {
     Waiting(usize),
 }
 impl ActualMeasurement {
+    fn get_pixels(self) -> Option<u16> {
+        match self {
+            Self::Pixels(p) => Some(p),
+            _ => None,
+        }
+    }
     fn get_pixels_lossy(self) -> u16 {
         match self {
             Self::Pixels(p) => p,
@@ -102,7 +109,7 @@ struct ElementDrawContext {
     bold: bool,
     italics: bool,
     respect_whitespace: bool,
-    width: NonInheritedField<Measurement>,
+    width: Option<Measurement>,
     height: NonInheritedField<Measurement>,
 }
 static DEFAULT_DRAW_CTX: ElementDrawContext = ElementDrawContext {
@@ -113,7 +120,7 @@ static DEFAULT_DRAW_CTX: ElementDrawContext = ElementDrawContext {
     bold: false,
     italics: false,
     respect_whitespace: false,
-    width: Unset,
+    width: None,
     height: Unset,
 };
 impl ElementDrawContext {
@@ -121,6 +128,7 @@ impl ElementDrawContext {
     fn merge_inherit(&mut self, other: &ElementDrawContext) {
         self.text_align = other.text_align.or(self.text_align);
         self.foreground_color = other.foreground_color.or(self.foreground_color);
+        self.width = other.width.or(self.width);
         self.bold |= other.bold;
         self.italics |= other.italics;
         self.respect_whitespace |= other.respect_whitespace;
@@ -129,7 +137,6 @@ impl ElementDrawContext {
     fn merge_all(&mut self, other: &ElementDrawContext) {
         self.merge_inherit(other);
         self.display = other.display.set_or(self.display);
-        self.width = other.width.set_or(self.width);
         self.height = other.height.set_or(self.height);
         self.background_color = other.background_color.set_or(self.background_color);
     }
@@ -155,14 +162,14 @@ impl StyleTarget {
 enum DrawCall {
     /// X, Y, W, H, Color
     Rect(u16, u16, ActualMeasurement, ActualMeasurement, style::Color),
-    /// X, Y, Text, Parent Width, DrawContext
-    Text(u16, u16, String, ActualMeasurement, ElementDrawContext),
+    /// X, Y, Text,  DrawContext
+    Text(u16, u16, String, ElementDrawContext),
 }
 impl DrawCall {
     fn order(&self) -> u8 {
         match self {
             DrawCall::Rect(_, _, _, _, _) => 0,
-            DrawCall::Text(_, _, _, _, _) => 1,
+            DrawCall::Text(_, _, _, _) => 1,
         }
     }
 }
@@ -172,7 +179,7 @@ impl Debug for DrawCall {
             DrawCall::Rect(x, y, w, h, c) => {
                 f.write_str(&format!("Rect({x},{y},{w:?},{h:?},{c:?})"))
             }
-            DrawCall::Text(x, y, text, _, _) => f.write_str(&format!("Text({x},{y},'{text}')")),
+            DrawCall::Text(x, y, text, _) => f.write_str(&format!("Text({x},{y},'{text}')")),
         }
     }
 }
@@ -339,14 +346,10 @@ impl Toad {
             .as_ref()
             .unwrap()
             .draw(DEFAULT_DRAW_CTX, &mut ctx, &mut draw_data)?;
-        //println!("{:?}", ctx.unknown_sized_elements);
-        //println!("{:?}", draw_data.draw_calls);
-        //println!(
-        //    "{:?},{:?}",
-        //    draw_data.content_width, draw_data.content_height
-        //);
+
         // sort draw calls such that rect calls are drawn first
         draw_data.draw_calls.sort_by_key(|a| a.order());
+        // reverse because vecs are LIFO
         draw_data.draw_calls.reverse();
         let mut last = DEFAULT_DRAW_CTX;
         let mut rects: Vec<(u16, u16, u16, u16, style::Color)> = Vec::new();
@@ -401,7 +404,7 @@ impl Toad {
                     }
                     rects.push((x, y, w, h, color));
                 }
-                DrawCall::Text(x, y, text, _, ctx) => {
+                DrawCall::Text(x, y, text, ctx) => {
                     apply_draw_ctx(ctx, &mut last, &mut stdout.lock())?;
                     for (index, line) in text.lines().enumerate() {
                         let text_len = line.len() as u16;
@@ -434,18 +437,18 @@ impl Toad {
                         if x != actual_cursor_x || y != actual_cursor_y {
                             queue!(stdout, cursor::MoveTo(x, y))?;
                         }
+                        actual_cursor_y = y;
                         print!("{line}");
                         actual_cursor_x = x + text_len;
-                        actual_cursor_y = y;
                         for (start, end, color) in chunks.into_iter() {
                             let x = start + x;
-                            let line = &text[start as usize..end as usize];
+                            let line = &line[start as usize..end as usize];
                             let mut ctx = ctx;
                             ctx.background_color = Specified(*color);
                             apply_draw_ctx(ctx, &mut last, &mut stdout.lock())?;
                             if x != actual_cursor_x {
                                 actual_cursor_x = x + line.len() as u16;
-                                queue!(stdout, cursor::MoveTo(x, y))?;
+                                queue!(stdout, cursor::MoveToColumn(x))?;
                             }
                             print!("{line}");
                         }

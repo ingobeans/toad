@@ -26,22 +26,24 @@ pub static DEFAULT_ELEMENT_TYPE: ElementType = ElementType {
     void_element: false,
     draw_ctx: DEFAULT_DRAW_CTX,
 };
+static P: ElementType = ElementType {
+    name: "p",
+    draw_ctx: ElementDrawContext {
+        display: Specified(Display::Block),
+        width: Some(Measurement::FitContentWidth),
+        height: Specified(Measurement::FitContentHeight),
+        ..DEFAULT_DRAW_CTX
+    },
+    ..DEFAULT_ELEMENT_TYPE
+};
 static H1: ElementType = ElementType {
     name: "h1",
     draw_ctx: ElementDrawContext {
         bold: true,
         foreground_color: Some(RED),
         display: Specified(Display::Block),
-        ..DEFAULT_DRAW_CTX
-    },
-    ..DEFAULT_ELEMENT_TYPE
-};
-static P: ElementType = ElementType {
-    name: "p",
-    draw_ctx: ElementDrawContext {
-        display: Specified(Display::Block),
-        width: Specified(Measurement::FitContentWidth),
-        height: Specified(Measurement::Pixels(LH)),
+        width: Some(Measurement::FitContentWidth),
+        height: Specified(Measurement::FitContentHeight),
         ..DEFAULT_DRAW_CTX
     },
     ..DEFAULT_ELEMENT_TYPE
@@ -67,7 +69,7 @@ static DIV: ElementType = ElementType {
 static SPAN: ElementType = ElementType {
     name: "span",
     draw_ctx: ElementDrawContext {
-        width: Specified(Measurement::FitContentWidth),
+        width: Some(Measurement::FitContentWidth),
         ..DEFAULT_DRAW_CTX
     },
     ..DEFAULT_ELEMENT_TYPE
@@ -75,7 +77,7 @@ static SPAN: ElementType = ElementType {
 static BODY: ElementType = ElementType {
     name: "body",
     draw_ctx: ElementDrawContext {
-        width: Specified(Measurement::PercentWidth(1.0)),
+        width: Some(Measurement::PercentWidth(1.0)),
         height: Specified(Measurement::PercentHeight(1.0)),
         background_color: Specified(DEFAULT_BACKGROUND_COLOR),
         display: Specified(Display::Block),
@@ -188,7 +190,7 @@ pub static ELEMENT_TYPES: &[ElementType] = &[
         name: "pre",
         draw_ctx: ElementDrawContext {
             respect_whitespace: true,
-            width: Specified(Measurement::FitContentWidth),
+            width: Some(Measurement::FitContentWidth),
             height: Specified(Measurement::FitContentHeight),
             display: Specified(Display::Block),
             ..DEFAULT_DRAW_CTX
@@ -217,9 +219,36 @@ pub static ELEMENT_TYPES: &[ElementType] = &[
     ElementType { name: "h5", ..H1 },
     ElementType { name: "h6", ..H1 },
 ];
+pub fn fit_text_in_width(text: &str, parent_width: ActualMeasurement) -> (String, u16, u16) {
+    let mut parts = String::new();
+    let mut width = 0;
+    let mut x = 0;
+    let mut y = 0;
+    let parent_width = parent_width.get_pixels();
+    for char in text.chars() {
+        if char == '\n' {
+            width = width.max(x);
+            x = 0;
+            y += 1;
+        } else {
+            x += 1;
+        }
+        parts.push(char);
+        if let Some(parent_width) = parent_width
+            && x >= parent_width / EM
+        {
+            width = width.max(x);
+            x = 0;
+            y += 1;
+            parts.push('\n');
+        }
+    }
+    width = width.max(x);
+    (parts, width, y)
+}
 pub fn get_element_type(name: &str) -> Option<&'static ElementType> {
     if !ELEMENT_TYPES.iter().any(|f| f.name == name) {
-        panic!("WA::: {name:?}")
+        //panic!("WA::: {name:?}")
     }
     ELEMENT_TYPES.iter().find(|f| f.name == name)
 }
@@ -229,10 +258,10 @@ fn disrespect_whitespace(text: &str) -> String {
     let mut new = String::new();
     let mut last = None;
     for char in text.chars() {
-        if char.is_whitespace()
-            && let Some(last_char) = last
-        {
-            if last_char == char {
+        if char.is_whitespace() {
+            if let Some(last_char) = last
+                && last_char == char
+            {
                 continue;
             }
             last = Some(char);
@@ -434,7 +463,6 @@ impl Element {
         style
             .background_color
             .inherit_from(parent_draw_context.background_color);
-        style.width.inherit_from(parent_draw_context.width);
         style.height.inherit_from(parent_draw_context.height);
         style.display.inherit_from(parent_draw_context.display);
         style
@@ -454,8 +482,6 @@ impl Element {
 
         let is_display_block = matches!(style.display, Specified(Display::Block));
 
-        parent_draw_ctx = style;
-
         if is_display_block && draw_data.x != 0 {
             draw_data.y += LH;
             draw_data.x = 0;
@@ -463,31 +489,19 @@ impl Element {
 
         if self.ty.name == "node" {
             if let Some(text) = &self.text
-                && (!is_whitespace(text) || parent_draw_ctx.respect_whitespace)
+                && (!is_whitespace(text) || style.respect_whitespace)
             {
-                let text = if parent_draw_ctx.respect_whitespace {
+                let text = if style.respect_whitespace {
                     text.clone()
                 } else {
                     disrespect_whitespace(text)
                 };
-                draw_data.draw_calls.push(DrawCall::Text(
-                    draw_data.x,
-                    draw_data.y,
-                    text.clone(),
-                    draw_data.parent_width,
-                    style,
-                ));
-                let mut lines = text.lines().peekable();
-                while let Some(line) = lines.next() {
-                    let len = line.len() as u16 * EM;
-                    draw_data.x += len;
-                    draw_data.content_width = draw_data.content_width.max(draw_data.x);
-                    if lines.peek().is_some() {
-                        draw_data.x = 0;
-                        draw_data.y += LH;
-                    }
-                    draw_data.content_height = draw_data.content_height.max(draw_data.y + LH);
-                }
+                let (text, width, height) = fit_text_in_width(&text, draw_data.parent_width);
+                draw_data
+                    .draw_calls
+                    .push(DrawCall::Text(draw_data.x, draw_data.y, text, style));
+                draw_data.content_width = draw_data.content_width.max(width * EM);
+                draw_data.content_height = draw_data.content_height.max(height * LH + LH);
             }
             return Ok(());
         }
@@ -530,7 +544,7 @@ impl Element {
                     *x += draw_data.x;
                     *y += draw_data.y;
                 }
-                DrawCall::Text(x, y, _, _, _) => {
+                DrawCall::Text(x, y, _, _) => {
                     *x += draw_data.x;
                     *y += draw_data.y;
                 }
@@ -579,5 +593,16 @@ impl Element {
         draw_data.draw_calls.append(&mut child_data.draw_calls);
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::element::disrespect_whitespace;
+
+    #[test]
+    fn test_disrespect_whitespace() {
+        let a = "helo        there\nmy\nfriend";
+        assert_eq!(disrespect_whitespace(a), String::from("helo theremyfriend"))
     }
 }

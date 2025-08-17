@@ -403,7 +403,6 @@ impl Toad {
                             actual_cursor_y = y;
                             queue!(stdout, cursor::MoveTo(x, y))?;
                         }
-                        rects.push((x, y, w, h, color));
                         queue!(
                             stdout,
                             style::SetBackgroundColor(color),

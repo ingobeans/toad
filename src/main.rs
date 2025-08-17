@@ -23,7 +23,7 @@ struct Webpage {
     url: Option<Url>,
     root: Option<Element>,
     global_style: HashMap<StyleTarget, ElementDrawContext>,
-    scroll_y: usize,
+    scroll_y: u16,
 }
 #[derive(Clone, Copy, PartialEq)]
 enum TextAlignment {
@@ -241,6 +241,18 @@ impl Toad {
                     }
                     self.draw(&stdout)?;
                 }
+                event::KeyCode::Down => {
+                    if let Some(tab) = self.tabs.get_mut(self.tab_index) {
+                        tab.scroll_y += 1;
+                        self.draw(&stdout)?;
+                    }
+                }
+                event::KeyCode::Up => {
+                    if let Some(tab) = self.tabs.get_mut(self.tab_index) {
+                        tab.scroll_y = tab.scroll_y.saturating_sub(1);
+                        self.draw(&stdout)?;
+                    }
+                }
                 event::KeyCode::Char(char) => {
                     if char == 'q' {
                         running = false;
@@ -327,14 +339,15 @@ impl Toad {
         };
         let start_x = 0;
         let start_y = 2;
-        let (width, height) = terminal::size()?;
+        let (screen_width, screen_height) = terminal::size()?;
+        let screen_height = screen_height - start_y;
         let mut global_ctx = GlobalDrawContext {
             unknown_sized_elements: Vec::new(),
             global_style: &tab.global_style,
         };
         let mut draw_data = DrawData {
-            parent_width: ActualMeasurement::Pixels(width * EM),
-            parent_height: ActualMeasurement::Pixels(height * LH),
+            parent_width: ActualMeasurement::Pixels(screen_width * EM),
+            parent_height: ActualMeasurement::Pixels(screen_height * LH),
             ..Default::default()
         };
         queue!(
@@ -375,32 +388,54 @@ impl Toad {
                 DrawCall::Rect(x, y, w, h, color) => {
                     let x = x / EM + start_x;
                     let y = y / LH + start_y;
+
                     let w = actualize_actual(w, &global_ctx.unknown_sized_elements);
                     let h = actualize_actual(h, &global_ctx.unknown_sized_elements);
-                    if x == start_x && y == start_y && w + start_x >= width && h + start_y >= height
+                    let w = w / EM;
+                    let mut h = h / LH;
+                    if x == start_x
+                        && y == start_y
+                        && w + start_x >= screen_width
+                        && h + start_y >= screen_height
                     {
                         if x != actual_cursor_x || y != actual_cursor_y {
                             actual_cursor_x = x;
                             actual_cursor_y = y;
                             queue!(stdout, cursor::MoveTo(x, y))?;
                         }
-                        queue!(stdout, terminal::Clear(terminal::ClearType::FromCursorDown))?;
+                        rects.push((x, y, w, h, color));
+                        queue!(
+                            stdout,
+                            style::SetBackgroundColor(color),
+                            terminal::Clear(terminal::ClearType::FromCursorDown)
+                        )?;
+                        continue;
                     }
-                    let w = w / EM;
-                    let h = h / LH;
+                    let bottom_out = y < tab.scroll_y;
+
+                    if bottom_out && y + h < tab.scroll_y {
+                        continue;
+                    } else if bottom_out {
+                        h -= tab.scroll_y - y;
+                    } else if y - tab.scroll_y > (screen_height + start_y) {
+                        continue;
+                    } else if y + h - tab.scroll_y > (screen_height + start_y) {
+                        h = (screen_height + start_y) + tab.scroll_y - y;
+                    }
+
+                    let y = y.saturating_sub(tab.scroll_y);
+                    rects.push((x, y, w, h, color));
+
                     let mut ctx = last;
                     ctx.background_color = Specified(color);
                     apply_draw_ctx(ctx, &mut last, &mut stdout.lock())?;
 
-                    {
-                        for i in 0..h {
-                            queue!(stdout, cursor::MoveTo(x, y + i))?;
-                            stdout.lock().write_all(&b" ".repeat(w as _))?;
-                            actual_cursor_x = x + w;
-                            actual_cursor_y = y + h;
-                        }
+                    for i in 0..h {
+                        queue!(stdout, cursor::MoveTo(x, y + i))?;
+                        stdout.lock().write_all(&b" ".repeat(w as _))?;
+                        actual_cursor_x = x + w;
+                        actual_cursor_y = y + h;
                     }
-                    rects.push((x, y, w, h, color));
                 }
                 DrawCall::Text(x, y, text, ctx, parent_width) => {
                     apply_draw_ctx(ctx, &mut last, &mut stdout.lock())?;
@@ -416,6 +451,10 @@ impl Toad {
                         };
                         let x = x + offset_x;
                         let y = y / LH + index as u16 + start_y;
+                        if y < tab.scroll_y || y - tab.scroll_y >= (screen_height + start_y) {
+                            continue;
+                        }
+                        let y = y - tab.scroll_y;
                         let mut chunks = Vec::new();
                         if let Unset = ctx.background_color {
                             // check if its over any rects

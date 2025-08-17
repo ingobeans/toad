@@ -81,7 +81,6 @@ pub fn parse(buf: &mut Vec<char>) -> Vec<Element> {
                 } else if char == '/' {
                     buf.pop();
                     if let ParseState::InElementType(name, attributes) = state {
-                        println!("a {name} {:?}", attributes);
                         let mut element = Element::new(
                             get_element_type(name.trim()).unwrap_or(&DEFAULT_ELEMENT_TYPE),
                         );

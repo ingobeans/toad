@@ -53,6 +53,7 @@ static BR: ElementType = ElementType {
     void_element: true,
     draw_ctx: ElementDrawContext {
         display: Specified(Display::Block),
+        height: Specified(Measurement::Pixels(LH)),
         ..DEFAULT_DRAW_CTX
     },
     ..DEFAULT_ELEMENT_TYPE

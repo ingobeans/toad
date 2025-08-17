@@ -448,7 +448,7 @@ impl Toad {
                     apply_draw_ctx(ctx, &mut last, &mut stdout.lock())?;
                     let width =
                         actualize_actual(parent_width, &global_ctx.unknown_sized_elements) / EM;
-                    for (index, line) in text.lines().enumerate() {
+                    for (index, mut line) in text.lines().enumerate() {
                         let text_len = line.len() as u16;
                         let x = x / EM + start_x;
                         let offset_x = match ctx.text_align {
@@ -462,6 +462,12 @@ impl Toad {
                             || y - tab.scroll_y >= (screen_height + start_y)
                         {
                             continue;
+                        }
+                        if x + text_len > screen_width {
+                            if x >= screen_width {
+                                continue;
+                            }
+                            panic!();
                         }
                         let y = y - tab.scroll_y;
                         let mut chunks = Vec::new();

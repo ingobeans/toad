@@ -480,8 +480,14 @@ impl Toad {
                             queue!(stdout, cursor::MoveTo(x, y))?;
                         }
                         actual_cursor_y = y;
-                        print!("{line}");
-                        actual_cursor_x = x + text_len;
+                        actual_cursor_x = x;
+                        if chunks
+                            .first()
+                            .is_none_or(|(start, end, _)| *start > 0 || *end < line.len() as u16)
+                        {
+                            print!("{line}");
+                            actual_cursor_x = x + text_len;
+                        }
                         for (start, end, color) in chunks.into_iter() {
                             let x = start + x;
                             let line = &line[start as usize..end as usize];

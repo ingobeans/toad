@@ -325,7 +325,7 @@ impl Toad {
             print!("{url}")
         }
         queue!(stdout, style::ResetColor)?;
-        Ok(())
+        stdout.flush()
     }
     fn draw_current_page(&self, mut stdout: &Stdout) -> io::Result<()> {
         let Some(tab) = self.tabs.get(self.tab_index) else {

@@ -220,8 +220,10 @@ impl Toad {
     async fn run(&mut self) -> io::Result<()> {
         let mut running = true;
         let mut stdout = stdout();
-        self.draw(&stdout)?;
         terminal::enable_raw_mode()?;
+        queue!(stdout, cursor::Hide)?;
+        self.draw_topbar(&stdout)?;
+        self.draw(&stdout)?;
         while running {
             let event = event::read()?;
             if !event.is_key_press() {
@@ -239,6 +241,7 @@ impl Toad {
                     if self.tab_index >= self.tabs.len() {
                         self.tab_index = 0;
                     }
+                    self.draw_topbar(&stdout)?;
                     self.draw(&stdout)?;
                 }
                 event::KeyCode::Down => {
@@ -273,6 +276,7 @@ impl Toad {
                         {
                             self.tab_index += 1;
                             self.tabs.insert(self.tab_index, page);
+                            self.draw_topbar(&stdout)?;
                         }
 
                         self.draw(&stdout)?;
@@ -286,9 +290,7 @@ impl Toad {
         Ok(())
     }
     fn draw(&self, mut stdout: &Stdout) -> io::Result<()> {
-        self.clear_screen(stdout)?;
         self.draw_current_page(stdout)?;
-        self.draw_topbar(stdout)?;
         stdout.flush()?;
         Ok(())
     }
@@ -324,14 +326,6 @@ impl Toad {
         }
         queue!(stdout, style::ResetColor)?;
         Ok(())
-    }
-    fn clear_screen(&self, mut stdout: &Stdout) -> io::Result<()> {
-        queue!(
-            stdout,
-            terminal::Clear(terminal::ClearType::Purge),
-            cursor::MoveTo(0, 0),
-            cursor::Hide,
-        )
     }
     fn draw_current_page(&self, mut stdout: &Stdout) -> io::Result<()> {
         let Some(tab) = self.tabs.get(self.tab_index) else {

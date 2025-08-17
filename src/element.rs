@@ -41,6 +41,7 @@ static P: ElementType = ElementType {
     draw_ctx: ElementDrawContext {
         display: Specified(Display::Block),
         width: Specified(Measurement::FitContentWidth),
+        height: Specified(Measurement::Pixels(LH)),
         ..DEFAULT_DRAW_CTX
     },
     ..DEFAULT_ELEMENT_TYPE
@@ -484,8 +485,8 @@ impl Element {
                     if lines.peek().is_some() {
                         draw_data.x = 0;
                         draw_data.y += LH;
-                        draw_data.content_height += LH;
                     }
+                    draw_data.content_height = draw_data.content_height.max(draw_data.y + LH);
                 }
             }
             return Ok(());
@@ -516,8 +517,12 @@ impl Element {
         };
         for child in self.children.iter() {
             child.draw(style, global_ctx, &mut child_data)?;
-            draw_data.content_width = draw_data.content_width.max(child_data.content_width);
-            draw_data.content_height = draw_data.content_height.max(child_data.content_height);
+            draw_data.content_width = draw_data
+                .content_width
+                .max(draw_data.x + child_data.content_width);
+            draw_data.content_height = draw_data
+                .content_height
+                .max(draw_data.y + child_data.content_height);
         }
         for draw_call in child_data.draw_calls.iter_mut() {
             match draw_call {
@@ -566,9 +571,8 @@ impl Element {
         let height = actual_height.get_pixels_lossy();
         draw_data.content_height = draw_data.content_height.max(height);
         draw_data.x += width;
-        draw_data.y += height;
         if is_display_block {
-            draw_data.y += LH;
+            draw_data.y += height;
             draw_data.x = 0;
         }
 

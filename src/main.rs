@@ -163,13 +163,13 @@ enum DrawCall {
     /// X, Y, W, H, Color
     Rect(u16, u16, ActualMeasurement, ActualMeasurement, style::Color),
     /// X, Y, Text,  DrawContext
-    Text(u16, u16, String, ElementDrawContext),
+    Text(u16, u16, String, ElementDrawContext, ActualMeasurement),
 }
 impl DrawCall {
     fn order(&self) -> u8 {
         match self {
             DrawCall::Rect(_, _, _, _, _) => 0,
-            DrawCall::Text(_, _, _, _) => 1,
+            DrawCall::Text(_, _, _, _, _) => 1,
         }
     }
 }
@@ -179,7 +179,7 @@ impl Debug for DrawCall {
             DrawCall::Rect(x, y, w, h, c) => {
                 f.write_str(&format!("Rect({x},{y},{w:?},{h:?},{c:?})"))
             }
-            DrawCall::Text(x, y, text, _) => f.write_str(&format!("Text({x},{y},'{text}')")),
+            DrawCall::Text(x, y, text, _, _) => f.write_str(&format!("Text({x},{y},'{text}')")),
         }
     }
 }
@@ -328,13 +328,13 @@ impl Toad {
         let start_x = 0;
         let start_y = 2;
         let (width, height) = terminal::size()?;
-        let mut ctx = GlobalDrawContext {
+        let mut global_ctx = GlobalDrawContext {
             unknown_sized_elements: Vec::new(),
             global_style: &tab.global_style,
         };
         let mut draw_data = DrawData {
-            parent_width: ActualMeasurement::Pixels(width),
-            parent_height: ActualMeasurement::Pixels(height),
+            parent_width: ActualMeasurement::Pixels(width * EM),
+            parent_height: ActualMeasurement::Pixels(height * LH),
             ..Default::default()
         };
         queue!(
@@ -345,7 +345,7 @@ impl Toad {
         tab.root
             .as_ref()
             .unwrap()
-            .draw(DEFAULT_DRAW_CTX, &mut ctx, &mut draw_data)?;
+            .draw(DEFAULT_DRAW_CTX, &mut global_ctx, &mut draw_data)?;
 
         // sort draw calls such that rect calls are drawn first
         draw_data.draw_calls.sort_by_key(|a| a.order());
@@ -367,9 +367,7 @@ impl Toad {
                         as f32
                         * p) as u16
                 }
-                ActualMeasurement::Waiting(_) => panic!(
-                    "ActualMeasurement::Waiting promise was not fulfilled! (how did this happen?)"
-                ),
+                ActualMeasurement::Waiting(_) => 0,
             }
         }
         while let Some(call) = draw_data.draw_calls.pop() {
@@ -377,8 +375,8 @@ impl Toad {
                 DrawCall::Rect(x, y, w, h, color) => {
                     let x = x / EM + start_x;
                     let y = y / LH + start_y;
-                    let w = actualize_actual(w, &ctx.unknown_sized_elements);
-                    let h = actualize_actual(h, &ctx.unknown_sized_elements);
+                    let w = actualize_actual(w, &global_ctx.unknown_sized_elements);
+                    let h = actualize_actual(h, &global_ctx.unknown_sized_elements);
                     if x == start_x && y == start_y && w + start_x >= width && h + start_y >= height
                     {
                         if x != actual_cursor_x || y != actual_cursor_y {
@@ -404,16 +402,19 @@ impl Toad {
                     }
                     rects.push((x, y, w, h, color));
                 }
-                DrawCall::Text(x, y, text, ctx) => {
+                DrawCall::Text(x, y, text, ctx, parent_width) => {
                     apply_draw_ctx(ctx, &mut last, &mut stdout.lock())?;
+                    let width =
+                        actualize_actual(parent_width, &global_ctx.unknown_sized_elements) / EM;
                     for (index, line) in text.lines().enumerate() {
                         let text_len = line.len() as u16;
+                        let x = x / EM + start_x;
                         let offset_x = match ctx.text_align {
                             Some(TextAlignment::Centre) => (width - x) / 2 - text_len / 2,
                             Some(TextAlignment::Right) => width - text_len,
                             _ => 0,
                         };
-                        let x = x / EM + offset_x + start_x;
+                        let x = x + offset_x;
                         let y = y / LH + index as u16 + start_y;
                         let mut chunks = Vec::new();
                         if let Unset = ctx.background_color {

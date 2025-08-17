@@ -469,7 +469,7 @@ impl Element {
     }
     pub fn draw(
         &self,
-        mut parent_draw_ctx: ElementDrawContext,
+        parent_draw_ctx: ElementDrawContext,
         global_ctx: &mut GlobalDrawContext,
         draw_data: &mut DrawData,
     ) -> io::Result<()> {
@@ -497,9 +497,13 @@ impl Element {
                     disrespect_whitespace(text)
                 };
                 let (text, width, height) = fit_text_in_width(&text, draw_data.parent_width);
-                draw_data
-                    .draw_calls
-                    .push(DrawCall::Text(draw_data.x, draw_data.y, text, style));
+                draw_data.draw_calls.push(DrawCall::Text(
+                    draw_data.x,
+                    draw_data.y,
+                    text,
+                    style,
+                    draw_data.parent_width,
+                ));
                 draw_data.content_width = draw_data.content_width.max(width * EM);
                 draw_data.content_height = draw_data.content_height.max(height * LH + LH);
             }
@@ -544,7 +548,7 @@ impl Element {
                     *x += draw_data.x;
                     *y += draw_data.y;
                 }
-                DrawCall::Text(x, y, _, _) => {
+                DrawCall::Text(x, y, _, _, _) => {
                     *x += draw_data.x;
                     *y += draw_data.y;
                 }

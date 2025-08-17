@@ -256,6 +256,20 @@ impl Toad {
                         self.draw(&stdout)?;
                     }
                 }
+                event::KeyCode::PageDown => {
+                    let (_, screen_height) = terminal::size()?;
+                    if let Some(tab) = self.tabs.get_mut(self.tab_index) {
+                        tab.scroll_y += screen_height;
+                        self.draw(&stdout)?;
+                    }
+                }
+                event::KeyCode::PageUp => {
+                    let (_, screen_height) = terminal::size()?;
+                    if let Some(tab) = self.tabs.get_mut(self.tab_index) {
+                        tab.scroll_y = tab.scroll_y.saturating_sub(screen_height);
+                        self.draw(&stdout)?;
+                    }
+                }
                 event::KeyCode::Char(char) => {
                     if char == 'q' {
                         running = false;
@@ -291,8 +305,7 @@ impl Toad {
     }
     fn draw(&self, mut stdout: &Stdout) -> io::Result<()> {
         self.draw_current_page(stdout)?;
-        stdout.flush()?;
-        Ok(())
+        stdout.flush()
     }
     fn draw_topbar(&self, mut stdout: &Stdout) -> io::Result<()> {
         queue!(

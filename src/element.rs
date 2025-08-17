@@ -5,8 +5,8 @@ use std::{
 };
 
 use crate::{
-    DEFAULT_DRAW_CTX, Display, DrawCall, ElementDrawContext, GlobalDrawContext, Measurement,
-    NonInheritedField::*, consts::*, css,
+    ActualMeasurement, DEFAULT_DRAW_CTX, Display, DrawCall, ElementDrawContext, GlobalDrawContext,
+    Measurement, NonInheritedField::*, consts::*, css,
 };
 use crossterm::{queue, style};
 
@@ -36,6 +36,52 @@ static H1: ElementType = ElementType {
     },
     ..DEFAULT_ELEMENT_TYPE
 };
+static P: ElementType = ElementType {
+    name: "p",
+    draw_ctx: ElementDrawContext {
+        display: Specified(Display::Block),
+        width: Specified(Measurement::FitContentWidth),
+        ..DEFAULT_DRAW_CTX
+    },
+    ..DEFAULT_ELEMENT_TYPE
+};
+static BR: ElementType = ElementType {
+    name: "br",
+    void_element: true,
+    draw_ctx: ElementDrawContext {
+        display: Specified(Display::Block),
+        ..DEFAULT_DRAW_CTX
+    },
+    ..DEFAULT_ELEMENT_TYPE
+};
+static DIV: ElementType = ElementType {
+    name: "div",
+    draw_ctx: ElementDrawContext {
+        display: Specified(Display::Block),
+        height: Specified(Measurement::FitContentHeight),
+        ..DEFAULT_DRAW_CTX
+    },
+    ..DEFAULT_ELEMENT_TYPE
+};
+static SPAN: ElementType = ElementType {
+    name: "span",
+    draw_ctx: ElementDrawContext {
+        width: Specified(Measurement::FitContentWidth),
+        ..DEFAULT_DRAW_CTX
+    },
+    ..DEFAULT_ELEMENT_TYPE
+};
+static BODY: ElementType = ElementType {
+    name: "body",
+    draw_ctx: ElementDrawContext {
+        width: Specified(Measurement::PercentWidth(1.0)),
+        height: Specified(Measurement::PercentHeight(1.0)),
+        background_color: Specified(DEFAULT_BACKGROUND_COLOR),
+        display: Specified(Display::Block),
+        ..DEFAULT_DRAW_CTX
+    },
+    ..DEFAULT_ELEMENT_TYPE
+};
 pub static ELEMENT_TYPES: &[ElementType] = &[
     ElementType {
         name: "node",
@@ -45,22 +91,68 @@ pub static ELEMENT_TYPES: &[ElementType] = &[
         },
         ..DEFAULT_ELEMENT_TYPE
     },
+    BODY,
+    P,
+    BR,
+    DIV,
+    SPAN,
+    ElementType { name: "b", ..P },
+    ElementType { name: "em", ..P },
+    ElementType {
+        name: "strong",
+        ..P
+    },
+    ElementType { name: "dl", ..P },
+    ElementType { name: "dt", ..P },
+    ElementType { name: "dd", ..P },
+    ElementType {
+        name: "font",
+        ..SPAN
+    },
+    ElementType {
+        name: "footer",
+        ..P
+    },
+    ElementType {
+        name: "main",
+        ..BODY
+    },
+    ElementType {
+        name: "label",
+        ..DEFAULT_ELEMENT_TYPE
+    },
+    ElementType {
+        name: "picture",
+        ..DEFAULT_ELEMENT_TYPE
+    },
+    ElementType {
+        name: "source",
+        void_element: true,
+        ..DEFAULT_ELEMENT_TYPE
+    },
+    ElementType {
+        name: "button",
+        ..DEFAULT_ELEMENT_TYPE
+    },
+    ElementType {
+        name: "form",
+        ..DIV
+    },
+    ElementType { name: "ul", ..P },
+    ElementType { name: "li", ..P },
     ElementType {
         name: "html",
+        ..BODY
+    },
+    ElementType {
+        name: "meta",
+        void_element: true,
+        stops_parsing: false,
         ..DEFAULT_ELEMENT_TYPE
     },
     ElementType {
         name: "img",
         void_element: true,
-        ..DEFAULT_ELEMENT_TYPE
-    },
-    ElementType {
-        name: "br",
-        void_element: true,
-        draw_ctx: ElementDrawContext {
-            display: Specified(Display::Block),
-            ..DEFAULT_DRAW_CTX
-        },
         ..DEFAULT_ELEMENT_TYPE
     },
     ElementType {
@@ -73,17 +165,11 @@ pub static ELEMENT_TYPES: &[ElementType] = &[
         void_element: true,
         ..DEFAULT_ELEMENT_TYPE
     },
+    ElementType { name: "nav", ..DIV },
     ElementType {
         name: "head",
-        ..DEFAULT_ELEMENT_TYPE
-    },
-    ElementType {
-        name: "body",
         draw_ctx: ElementDrawContext {
-            width: Specified(Measurement::PercentWidth(1.0)),
-            height: Specified(Measurement::PercentHeight(1.0)),
-            background_color: Specified(DEFAULT_BACKGROUND_COLOR),
-            display: Specified(Display::Block),
+            display: Specified(Display::None),
             ..DEFAULT_DRAW_CTX
         },
         ..DEFAULT_ELEMENT_TYPE
@@ -109,31 +195,10 @@ pub static ELEMENT_TYPES: &[ElementType] = &[
         ..DEFAULT_ELEMENT_TYPE
     },
     ElementType {
-        name: "p",
-        draw_ctx: ElementDrawContext {
-            display: Specified(Display::Block),
-            width: Specified(Measurement::FitContentWidth),
-            ..DEFAULT_DRAW_CTX
-        },
-        ..DEFAULT_ELEMENT_TYPE
+        name: "header",
+        ..P
     },
-    ElementType {
-        name: "span",
-        ..DEFAULT_ELEMENT_TYPE
-    },
-    ElementType {
-        name: "a",
-        ..DEFAULT_ELEMENT_TYPE
-    },
-    ElementType {
-        name: "div",
-        draw_ctx: ElementDrawContext {
-            display: Specified(Display::Block),
-            height: Specified(Measurement::FitContentHeight),
-            ..DEFAULT_DRAW_CTX
-        },
-        ..DEFAULT_ELEMENT_TYPE
-    },
+    ElementType { name: "a", ..SPAN },
     ElementType {
         name: "style",
         stops_parsing: true,
@@ -152,6 +217,9 @@ pub static ELEMENT_TYPES: &[ElementType] = &[
     ElementType { name: "h6", ..H1 },
 ];
 pub fn get_element_type(name: &str) -> Option<&'static ElementType> {
+    if !ELEMENT_TYPES.iter().any(|f| f.name == name) {
+        panic!("WA::: {name:?}")
+    }
     ELEMENT_TYPES.iter().find(|f| f.name == name)
 }
 /// Removes repeated whitespace and newlines
@@ -222,6 +290,60 @@ pub fn apply_draw_ctx<T: Write>(
     old_ctx.background_color = draw_ctx.background_color;
     Ok(())
 }
+
+fn actualize(
+    a: Measurement,
+    draw_data: &DrawData,
+    unknown_sized_elements: &mut Vec<Option<ActualMeasurement>>,
+    content_size_known: bool,
+) -> ActualMeasurement {
+    match a {
+        Measurement::Pixels(pixels) => ActualMeasurement::Pixels(pixels),
+        Measurement::FitContentHeight if content_size_known => {
+            ActualMeasurement::Pixels(draw_data.content_height)
+        }
+        Measurement::FitContentWidth if content_size_known => {
+            ActualMeasurement::Pixels(draw_data.content_width)
+        }
+        Measurement::PercentHeight(percent) => match draw_data.parent_height {
+            ActualMeasurement::Pixels(pixels) => {
+                ActualMeasurement::Pixels((pixels as f32 * percent) as u16)
+            }
+            ActualMeasurement::PercentOfUnknown(index, p) => {
+                ActualMeasurement::PercentOfUnknown(index, percent * p)
+            }
+            ActualMeasurement::Waiting(index) => {
+                ActualMeasurement::PercentOfUnknown(index, percent)
+            }
+        },
+        Measurement::PercentWidth(percent) => match draw_data.parent_width {
+            ActualMeasurement::Pixels(pixels) => {
+                ActualMeasurement::Pixels((pixels as f32 * percent) as u16)
+            }
+            ActualMeasurement::PercentOfUnknown(index, p) => {
+                ActualMeasurement::PercentOfUnknown(index, percent * p)
+            }
+            ActualMeasurement::Waiting(index) => {
+                ActualMeasurement::PercentOfUnknown(index, percent)
+            }
+        },
+        _ => {
+            let index = unknown_sized_elements.len();
+            unknown_sized_elements.push(None);
+            ActualMeasurement::Waiting(index)
+        }
+    }
+}
+#[derive(Default, Clone)]
+pub struct DrawData {
+    pub draw_calls: Vec<DrawCall>,
+    pub content_width: u16,
+    pub content_height: u16,
+    pub parent_width: ActualMeasurement,
+    pub parent_height: ActualMeasurement,
+    pub x: u16,
+    pub y: u16,
+}
 pub struct Element {
     pub ty: &'static ElementType,
     pub children: Vec<Element>,
@@ -245,26 +367,6 @@ impl Element {
             style: DEFAULT_DRAW_CTX,
             text: None,
         }
-    }
-    /// Gets the size of elements content/children by running a dry draw call and comparing how far the cursor is moved.
-    pub fn get_content_size(
-        &self,
-        parent_draw_context: ElementDrawContext,
-        global_ctx: &GlobalDrawContext,
-    ) -> (u16, u16) {
-        let style = self.get_active_style(global_ctx, parent_draw_context);
-        let mut ctx = GlobalDrawContext {
-            draw_calls: Vec::new(),
-            width: global_ctx.width,
-            height: global_ctx.height,
-            x: 0,
-            y: 0,
-            global_style: &global_ctx.global_style.clone(),
-        };
-        for child in self.children.iter() {
-            let _ = child.draw(style, &mut ctx);
-        }
-        ctx.draw_area_size()
     }
     pub fn get_attribute(&self, k: &str) -> Option<&String> {
         self.attributes.get(k)
@@ -340,6 +442,7 @@ impl Element {
         &self,
         mut parent_draw_ctx: ElementDrawContext,
         global_ctx: &mut GlobalDrawContext,
+        draw_data: &mut DrawData,
     ) -> io::Result<()> {
         // construct this element's active style
         let style = self.get_active_style(global_ctx, parent_draw_ctx);
@@ -352,75 +455,125 @@ impl Element {
 
         parent_draw_ctx = style;
 
-        if is_display_block && global_ctx.x != 0 {
-            global_ctx.y += 1;
-            global_ctx.x = 0;
+        if is_display_block && draw_data.x != 0 {
+            draw_data.y += LH;
+            draw_data.x = 0;
         }
-        let screen_size = (global_ctx.width, global_ctx.height);
 
-        let width = style
-            .width
-            .map(|width| width.to_pixels(screen_size, self, global_ctx, parent_draw_ctx));
-        let height = style
-            .height
-            .map(|height| height.to_pixels(screen_size, self, global_ctx, parent_draw_ctx));
-        if is_display_block
-            && let Some(width) = width
-            && let Some(height) = height
-            && let Specified(color) = style.background_color
-        {
-            // draw background color over area
-            global_ctx.draw_calls.push(DrawCall::Rect(
-                global_ctx.x,
-                global_ctx.y,
-                width / EM,
-                height / LH,
+        if self.ty.name == "node" {
+            if let Some(text) = &self.text
+                && (!is_whitespace(text) || parent_draw_ctx.respect_whitespace)
+            {
+                let text = if parent_draw_ctx.respect_whitespace {
+                    text.clone()
+                } else {
+                    disrespect_whitespace(text)
+                };
+                draw_data.draw_calls.push(DrawCall::Text(
+                    draw_data.x,
+                    draw_data.y,
+                    text.clone(),
+                    draw_data.parent_width,
+                    style,
+                ));
+                let mut lines = text.lines().peekable();
+                while let Some(line) = lines.next() {
+                    let len = line.len() as u16 * EM;
+                    draw_data.x += len;
+                    draw_data.content_width = draw_data.content_width.max(draw_data.x);
+                    if lines.peek().is_some() {
+                        draw_data.x = 0;
+                        draw_data.y += LH;
+                        draw_data.content_height += LH;
+                    }
+                }
+            }
+            return Ok(());
+        }
+
+        // actualize width and height
+        let mut actual_width = actualize(
+            style.width.unwrap_or(Measurement::Pixels(0)),
+            draw_data,
+            &mut global_ctx.unknown_sized_elements,
+            false,
+        );
+        let mut actual_height = actualize(
+            style.height.unwrap_or(Measurement::Pixels(0)),
+            draw_data,
+            &mut global_ctx.unknown_sized_elements,
+            false,
+        );
+        draw_data.content_width = draw_data.content_width.max(actual_width.get_pixels_lossy());
+        draw_data.content_height = draw_data
+            .content_height
+            .max(actual_height.get_pixels_lossy());
+
+        let mut child_data = DrawData {
+            parent_width: actual_width,
+            parent_height: actual_height,
+            ..Default::default()
+        };
+        for child in self.children.iter() {
+            child.draw(style, global_ctx, &mut child_data)?;
+            draw_data.content_width = draw_data.content_width.max(child_data.content_width);
+            draw_data.content_height = draw_data.content_height.max(child_data.content_height);
+        }
+        for draw_call in child_data.draw_calls.iter_mut() {
+            match draw_call {
+                DrawCall::Rect(x, y, _, _, _) => {
+                    *x += draw_data.x;
+                    *y += draw_data.y;
+                }
+                DrawCall::Text(x, y, _, _, _) => {
+                    *x += draw_data.x;
+                    *y += draw_data.y;
+                }
+            }
+        }
+
+        // reactualize width and height with content size known
+        if let ActualMeasurement::Waiting(index) = actual_width {
+            actual_width = actualize(
+                style.width.unwrap_or(Measurement::Pixels(0)),
+                &child_data,
+                &mut global_ctx.unknown_sized_elements,
+                true,
+            );
+            global_ctx.unknown_sized_elements[index] = Some(actual_width);
+        }
+        if let ActualMeasurement::Waiting(index) = actual_height {
+            actual_height = actualize(
+                style.height.unwrap_or(Measurement::Pixels(0)),
+                &child_data,
+                &mut global_ctx.unknown_sized_elements,
+                true,
+            );
+            global_ctx.unknown_sized_elements[index] = Some(actual_height);
+        }
+        if is_display_block && let Specified(color) = style.background_color {
+            draw_data.draw_calls.push(DrawCall::Rect(
+                draw_data.x,
+                draw_data.y,
+                actual_width,
+                actual_height,
                 color,
             ));
         }
 
-        if let Some(text) = &self.text
-            && (!is_whitespace(text) || parent_draw_ctx.respect_whitespace)
-        {
-            let text = if parent_draw_ctx.respect_whitespace {
-                text.clone()
-            } else {
-                disrespect_whitespace(text)
-            };
-            global_ctx.draw_calls.push(DrawCall::Text(
-                global_ctx.x,
-                global_ctx.y,
-                text.clone(),
-                style,
-            ));
-            let mut lines = text.lines().peekable();
-            while let Some(line) = lines.next() {
-                global_ctx.x += line.len() as u16;
-                if lines.peek().is_some() {
-                    global_ctx.x = 0;
-                    global_ctx.y += 1;
-                }
-            }
+        let width = actual_width.get_pixels_lossy();
+        draw_data.content_width = draw_data.content_width.max(width);
+        let height = actual_height.get_pixels_lossy();
+        draw_data.content_height = draw_data.content_height.max(height);
+        draw_data.x += width;
+        draw_data.y += height;
+        if is_display_block {
+            draw_data.y += LH;
+            draw_data.x = 0;
         }
-        let old_y = global_ctx.y;
-        for child in self.children.iter() {
-            child.draw(style, global_ctx)?;
-        }
-        let move_y = global_ctx.y - old_y;
-        if let Some(width) = width {
-            global_ctx.x += width / EM;
-        }
-        if let Some(height) = height {
-            let min_move_y = height / LH;
-            if move_y < min_move_y {
-                let amt = min_move_y - move_y;
-                global_ctx.y += amt;
-                global_ctx.x = 0;
-            }
-        } else if is_display_block {
-            global_ctx.y += 1;
-            global_ctx.x = 0;
-        }
+
+        draw_data.draw_calls.append(&mut child_data.draw_calls);
+
         Ok(())
     }
 }

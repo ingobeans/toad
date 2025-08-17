@@ -3,8 +3,8 @@ use std::collections::HashMap;
 use crossterm::style;
 
 use crate::{
-    consts::*, utils::*, Display, ElementDrawContext, Measurement, NonInheritedField::*,
-    StyleTarget, TextAlignment, DEFAULT_DRAW_CTX,
+    DEFAULT_DRAW_CTX, Display, ElementDrawContext, Measurement, NonInheritedField::*, StyleTarget,
+    TextAlignment, consts::*, utils::*,
 };
 
 fn hex_to_rgb(value: u32) -> style::Color {
@@ -37,12 +37,12 @@ fn parse_color_text(text: &str) -> Option<style::Color> {
     // copied from https://en.wikipedia.org/wiki/Web_colors
     match text.to_lowercase().as_str() {
         "white" => Some(hex_to_rgb(0xFFFFFF)),
-        "silve" => Some(hex_to_rgb(0xC0C0C0)),
+        "silver" => Some(hex_to_rgb(0xC0C0C0)),
         "gray" => Some(hex_to_rgb(0x808080)),
         "black" => Some(hex_to_rgb(0x000000)),
         "red" => Some(hex_to_rgb(0xFF0000)),
-        "maroo" => Some(hex_to_rgb(0x800000)),
-        "yello" => Some(hex_to_rgb(0xFFFF00)),
+        "maroon" => Some(hex_to_rgb(0x800000)),
+        "yellow" => Some(hex_to_rgb(0xFFFF00)),
         "olive" => Some(hex_to_rgb(0x808000)),
         "lime" => Some(hex_to_rgb(0x00FF00)),
         "green" => Some(hex_to_rgb(0x008000)),

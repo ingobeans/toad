@@ -63,8 +63,9 @@ pub fn parse(buf: &mut Vec<char>) -> Vec<Element> {
             ParseState::InElementType(name, attributes) => {
                 if char == '>' {
                     if let ParseState::InElementType(name, attributes) = state {
-                        let mut element =
-                            Element::new(get_element_type(&name).unwrap_or(&DEFAULT_ELEMENT_TYPE));
+                        let mut element = Element::new(
+                            get_element_type(name.trim()).unwrap_or(&DEFAULT_ELEMENT_TYPE),
+                        );
                         element.set_attributes(attributes);
                         if !element.ty.void_element && !element.ty.stops_parsing {
                             element.children = parse(buf);
@@ -80,14 +81,16 @@ pub fn parse(buf: &mut Vec<char>) -> Vec<Element> {
                 } else if char == '/' {
                     buf.pop();
                     if let ParseState::InElementType(name, attributes) = state {
-                        let mut element =
-                            Element::new(get_element_type(&name).unwrap_or(&DEFAULT_ELEMENT_TYPE));
+                        println!("a {name} {:?}", attributes);
+                        let mut element = Element::new(
+                            get_element_type(name.trim()).unwrap_or(&DEFAULT_ELEMENT_TYPE),
+                        );
                         element.set_attributes(attributes);
                         elements.push(element);
                         state = ParseState::WaitingForElement;
                     }
                     continue;
-                } else if char == ' ' {
+                } else if char.is_whitespace() {
                     let (key, end) = pop_until_any(buf, &['=', '/', '>']);
                     let Some(end) = end else {
                         continue;
@@ -99,9 +102,13 @@ pub fn parse(buf: &mut Vec<char>) -> Vec<Element> {
                     let Some(quote_type) = buf.pop() else {
                         continue;
                     };
-                    let value = pop_until(buf, &quote_type).iter().collect();
+                    let value = pop_until(buf, &quote_type)
+                        .iter()
+                        .collect::<String>()
+                        .trim()
+                        .to_string();
 
-                    let key = key.iter().collect();
+                    let key = key.iter().collect::<String>().trim().to_string();
                     attributes.insert(key, value);
 
                     continue;

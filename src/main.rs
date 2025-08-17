@@ -36,37 +36,32 @@ enum Display {
     Block,
     None,
 }
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum ActualMeasurement {
+    Pixels(u16),
+    PercentOfUnknown(usize, f32),
+    Waiting(usize),
+}
+impl ActualMeasurement {
+    fn get_pixels_lossy(self) -> u16 {
+        match self {
+            Self::Pixels(p) => p,
+            _ => 0,
+        }
+    }
+}
+impl Default for ActualMeasurement {
+    fn default() -> Self {
+        Self::Waiting(999)
+    }
+}
+#[derive(Clone, Copy, PartialEq, Debug)]
 enum Measurement {
     FitContentWidth,
     FitContentHeight,
     PercentWidth(f32),
     PercentHeight(f32),
     Pixels(u16),
-}
-impl Measurement {
-    #[expect(dead_code)]
-    fn is_definite(self) -> bool {
-        !matches!(
-            self,
-            Measurement::FitContentHeight | Measurement::FitContentWidth
-        )
-    }
-    fn to_pixels(
-        self,
-        screen_size: (u16, u16),
-        element: &Element,
-        global_ctx: &GlobalDrawContext,
-        draw_ctx: ElementDrawContext,
-    ) -> u16 {
-        match &self {
-            Self::Pixels(pixels) => *pixels,
-            Self::PercentHeight(percent) => ((screen_size.1 as f32 * percent) * LH as f32) as u16,
-            Self::PercentWidth(percent) => ((screen_size.0 as f32 * percent) * EM as f32) as u16,
-            Self::FitContentWidth => element.get_content_size(draw_ctx, global_ctx).0 * EM,
-            Self::FitContentHeight => element.get_content_size(draw_ctx, global_ctx).1 * LH,
-        }
-    }
 }
 
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -81,15 +76,6 @@ impl<T> NonInheritedField<T> {
     fn inherit_from(&mut self, b: Self) {
         if let Inherit = self {
             *self = b;
-        }
-    }
-    fn map<A, F>(self, f: F) -> Option<A>
-    where
-        F: FnOnce(T) -> A,
-    {
-        match self {
-            Specified(x) => Some(f(x)),
-            _ => None,
         }
     }
     fn unwrap_or(self, other: T) -> T {
@@ -165,62 +151,38 @@ impl StyleTarget {
     }
 }
 
-#[derive(PartialEq)]
+#[derive(PartialEq, Clone)]
 enum DrawCall {
     /// X, Y, W, H, Color
-    Rect(u16, u16, u16, u16, style::Color),
-    /// X, Y, Text, Draw Context
-    Text(u16, u16, String, ElementDrawContext),
+    Rect(u16, u16, ActualMeasurement, ActualMeasurement, style::Color),
+    /// X, Y, Text, Parent Width, DrawContext
+    Text(u16, u16, String, ActualMeasurement, ElementDrawContext),
 }
 impl DrawCall {
     fn order(&self) -> u8 {
         match self {
             DrawCall::Rect(_, _, _, _, _) => 0,
-            DrawCall::Text(_, _, _, _) => 1,
+            DrawCall::Text(_, _, _, _, _) => 1,
         }
     }
 }
 impl Debug for DrawCall {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            DrawCall::Rect(x, y, w, h, c) => f.write_str(&format!("Rect({x},{y},{w},{h},{c:?})")),
-            DrawCall::Text(x, y, text, _) => f.write_str(&format!("Text({x},{y},'{text}')")),
+            DrawCall::Rect(x, y, w, h, c) => {
+                f.write_str(&format!("Rect({x},{y},{w:?},{h:?},{c:?})"))
+            }
+            DrawCall::Text(x, y, text, _, _) => f.write_str(&format!("Text({x},{y},'{text}')")),
         }
     }
 }
 struct GlobalDrawContext<'a> {
-    draw_calls: Vec<DrawCall>,
-    /// Screen's width
-    width: u16,
-    /// Screen's height
-    height: u16,
-    /// The "cursor" x, i.e. where to start drawing the next element
-    x: u16,
-    /// The "cursor" y, i.e. where to start drawing the next element
-    y: u16,
     /// The global CSS stylesheet
     global_style: &'a HashMap<StyleTarget, ElementDrawContext>,
+    /// Buffer that all elements with unknown sizes are added to, such that any relative size to an unknown can later be evaluated.
+    unknown_sized_elements: Vec<Option<ActualMeasurement>>,
 }
-impl GlobalDrawContext<'_> {
-    fn draw_area_size(&self) -> (u16, u16) {
-        let (mut w, mut h) = (0, 0);
-        for call in self.draw_calls.iter() {
-            match call {
-                DrawCall::Rect(x, y, rw, rh, _) => {
-                    w = w.max(x + rw);
-                    h = h.max(y + rh);
-                }
-                DrawCall::Text(x, y, text, _) => {
-                    for line in text.lines() {
-                        w = w.max(x + line.len() as u16)
-                    }
-                    h = h.max(y + text.lines().count() as u16)
-                }
-            }
-        }
-        (w, h)
-    }
-}
+
 struct Toad {
     tabs: Vec<Webpage>,
     tab_index: usize,
@@ -360,40 +322,76 @@ impl Toad {
         let start_y = 2;
         let (width, height) = terminal::size()?;
         let mut ctx = GlobalDrawContext {
-            draw_calls: Vec::new(),
-            width,
-            height,
-            x: start_x,
-            y: start_y,
+            unknown_sized_elements: Vec::new(),
             global_style: &tab.global_style,
         };
+        let mut draw_data = DrawData {
+            parent_width: ActualMeasurement::Pixels(width),
+            parent_height: ActualMeasurement::Pixels(height),
+            ..Default::default()
+        };
+        queue!(
+            stdout,
+            cursor::MoveTo(start_x, start_y),
+            terminal::Clear(terminal::ClearType::FromCursorDown)
+        )?;
         tab.root
             .as_ref()
             .unwrap()
-            .draw(DEFAULT_DRAW_CTX, &mut ctx)?;
-        let mut last = DEFAULT_DRAW_CTX;
-        let mut actual_cursor_x = start_x;
-        let mut actual_cursor_y = start_y;
+            .draw(DEFAULT_DRAW_CTX, &mut ctx, &mut draw_data)?;
+        //println!("{:?}", ctx.unknown_sized_elements);
+        //println!("{:?}", draw_data.draw_calls);
+        //println!(
+        //    "{:?},{:?}",
+        //    draw_data.content_width, draw_data.content_height
+        //);
         // sort draw calls such that rect calls are drawn first
-        ctx.draw_calls.sort_by_key(|a| a.order());
-        // reverse because vecs are LIFO
-        ctx.draw_calls.reverse();
-        let mut rects = Vec::new();
-        while let Some(call) = ctx.draw_calls.pop() {
+        draw_data.draw_calls.sort_by_key(|a| a.order());
+        draw_data.draw_calls.reverse();
+        let mut last = DEFAULT_DRAW_CTX;
+        let mut rects: Vec<(u16, u16, u16, u16, style::Color)> = Vec::new();
+        let mut actual_cursor_x = 0;
+        let mut actual_cursor_y = 0;
+
+        fn actualize_actual(
+            a: ActualMeasurement,
+            unknown_sized_elements: &Vec<Option<ActualMeasurement>>,
+        ) -> u16 {
+            match a {
+                ActualMeasurement::Pixels(p) => p,
+                ActualMeasurement::PercentOfUnknown(i, p) => {
+                    (actualize_actual(unknown_sized_elements[i].unwrap(), unknown_sized_elements)
+                        as f32
+                        * p) as u16
+                }
+                ActualMeasurement::Waiting(_) => panic!(
+                    "ActualMeasurement::Waiting promise was not fulfilled! (how did this happen?)"
+                ),
+            }
+        }
+        while let Some(call) = draw_data.draw_calls.pop() {
             match call {
                 DrawCall::Rect(x, y, w, h, color) => {
-                    let mut ctx = last;
-                    ctx.background_color = Specified(color);
-                    apply_draw_ctx(ctx, &mut last, &mut stdout.lock())?;
-
-                    if x == start_x && y == start_y && w == width && h == height {
+                    let x = x / EM + start_x;
+                    let y = y / LH + start_y;
+                    let w = actualize_actual(w, &ctx.unknown_sized_elements);
+                    let h = actualize_actual(h, &ctx.unknown_sized_elements);
+                    if x == start_x && y == start_y && w + start_x >= width && h + start_y >= height
+                    {
                         if x != actual_cursor_x || y != actual_cursor_y {
                             actual_cursor_x = x;
                             actual_cursor_y = y;
                             queue!(stdout, cursor::MoveTo(x, y))?;
                         }
                         queue!(stdout, terminal::Clear(terminal::ClearType::FromCursorDown))?;
-                    } else {
+                    }
+                    let w = w / EM;
+                    let h = h / LH;
+                    let mut ctx = last;
+                    ctx.background_color = Specified(color);
+                    apply_draw_ctx(ctx, &mut last, &mut stdout.lock())?;
+
+                    {
                         for i in 0..h {
                             queue!(stdout, cursor::MoveTo(x, y + i))?;
                             stdout.lock().write_all(&b" ".repeat(w as _))?;
@@ -401,9 +399,9 @@ impl Toad {
                             actual_cursor_y = y + h;
                         }
                     }
-                    rects.push(call);
+                    rects.push((x, y, w, h, color));
                 }
-                DrawCall::Text(x, y, text, ctx) => {
+                DrawCall::Text(x, y, text, _, ctx) => {
                     apply_draw_ctx(ctx, &mut last, &mut stdout.lock())?;
                     for (index, line) in text.lines().enumerate() {
                         let text_len = line.len() as u16;
@@ -412,22 +410,19 @@ impl Toad {
                             Some(TextAlignment::Right) => width - text_len,
                             _ => 0,
                         };
-                        let y = y + index as u16;
-                        let x = x + offset_x;
+                        let x = x / EM + offset_x + start_x;
+                        let y = y / LH + index as u16 + start_y;
                         let mut chunks = Vec::new();
                         if let Unset = ctx.background_color {
                             // check if its over any rects
-                            for rect in rects.iter() {
-                                let DrawCall::Rect(rx, ry, rw, rh, color) = rect else {
-                                    continue;
-                                };
+                            for (rx, ry, rw, rh, color) in rects.iter() {
                                 let horizontal_range = *rx..(rx + rw);
-                                let vertical_range = (*ry)..(ry + rh);
+                                let vertical_range = *ry..(ry + rh);
                                 if vertical_range.contains(&y)
                                     && (horizontal_range.contains(&x)
                                         || horizontal_range.contains(&(x + text_len)))
                                 {
-                                    let start = *rx.max(&x) - x;
+                                    let start = rx.max(&x) - x;
                                     let end = (rx + rw).min(x + text_len) - x;
                                     // remove any chunks that are covered by this chunk
                                     chunks.retain(|(s, e, _)| *s < start || *e > end);
@@ -458,6 +453,7 @@ impl Toad {
                 }
             }
         }
+
         queue!(stdout, style::ResetColor)
     }
 }

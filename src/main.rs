@@ -387,7 +387,7 @@ impl Toad {
             match call {
                 DrawCall::Rect(x, y, w, h, color) => {
                     let x = x / EM + start_x;
-                    let y = y / LH + start_y;
+                    let mut y = y / LH + start_y;
 
                     let w = actualize_actual(w, &global_ctx.unknown_sized_elements);
                     let h = actualize_actual(h, &global_ctx.unknown_sized_elements);
@@ -411,12 +411,14 @@ impl Toad {
                         )?;
                         continue;
                     }
-                    let bottom_out = y < tab.scroll_y;
+                    let bottom_out = y - start_y < tab.scroll_y;
 
-                    if bottom_out && y + h < tab.scroll_y {
+                    if bottom_out && y + h - start_y < tab.scroll_y {
                         continue;
                     } else if bottom_out {
-                        h -= tab.scroll_y - y;
+                        let o = y;
+                        y = start_y + tab.scroll_y;
+                        h -= y - o;
                     } else if y - tab.scroll_y > (screen_height + start_y) {
                         continue;
                     } else if y + h - tab.scroll_y > (screen_height + start_y) {
@@ -429,7 +431,6 @@ impl Toad {
                     let mut ctx = last;
                     ctx.background_color = Specified(color);
                     apply_draw_ctx(ctx, &mut last, &mut stdout.lock())?;
-
                     for i in 0..h {
                         queue!(stdout, cursor::MoveTo(x, y + i))?;
                         stdout.lock().write_all(&b" ".repeat(w as _))?;
@@ -451,7 +452,9 @@ impl Toad {
                         };
                         let x = x + offset_x;
                         let y = y / LH + index as u16 + start_y;
-                        if y < tab.scroll_y || y - tab.scroll_y >= (screen_height + start_y) {
+                        if y - start_y < tab.scroll_y
+                            || y - tab.scroll_y >= (screen_height + start_y)
+                        {
                             continue;
                         }
                         let y = y - tab.scroll_y;

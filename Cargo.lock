@@ -1193,7 +1193,7 @@ dependencies = [
 
 [[package]]
 name = "toad"
-version = "0.1.37"
+version = "0.7.3"
 dependencies = [
  "crossterm",
  "reqwest",

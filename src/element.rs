@@ -6,7 +6,8 @@ use std::{
 
 use crate::{
     ActualMeasurement, DEFAULT_DRAW_CTX, Display, DrawCall, ElementDrawContext, GlobalDrawContext,
-    InteractableType, Measurement, NonInheritedField::*, consts::*, css, parsing::parse_special,
+    InteractableElement, InteractableType, Measurement, NonInheritedField::*, consts::*, css,
+    parsing::parse_special,
 };
 use crossterm::{queue, style};
 
@@ -414,7 +415,7 @@ pub struct DrawData {
     pub parent_height: ActualMeasurement,
     pub x: u16,
     pub y: u16,
-    pub parent_interactable: Option<InteractableType>,
+    pub parent_interactable: Option<InteractableElement>,
 }
 pub struct Element {
     pub ty: &'static ElementType,
@@ -537,7 +538,7 @@ impl Element {
             draw_data.y += LH;
             draw_data.x = 0;
         }
-        let mut self_interactable = None;
+        let mut self_interactable = draw_data.parent_interactable.clone();
 
         if self.ty.name == "node" {
             if let Some(text) = &self.text
@@ -569,7 +570,11 @@ impl Element {
             && let Some(link) = self.get_attribute("href")
         {
             // register link as interactable element
-            self_interactable = Some(InteractableType::Link(link.clone()));
+            self_interactable = Some(InteractableElement {
+                ty: InteractableType::Link(link.clone()),
+                index: global_ctx.interactable_index,
+            });
+            global_ctx.interactable_index += 1;
         }
 
         // actualize width and height

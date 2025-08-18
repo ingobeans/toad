@@ -23,6 +23,7 @@ struct Webpage {
     root: Option<Element>,
     global_style: Vec<(StyleTarget, ElementDrawContext)>,
     scroll_y: u16,
+    debug_info: WebpageDebugInfo,
 }
 #[derive(Clone, Copy, PartialEq)]
 enum TextAlignment {
@@ -170,14 +171,21 @@ impl StyleTarget {
 enum DrawCall {
     /// X, Y, W, H, Color
     Rect(u16, u16, ActualMeasurement, ActualMeasurement, style::Color),
-    /// X, Y, Text,  DrawContext
-    Text(u16, u16, String, ElementDrawContext, ActualMeasurement),
+    /// X, Y, Text, DrawContext, Parent Interactable
+    Text(
+        u16,
+        u16,
+        String,
+        ElementDrawContext,
+        ActualMeasurement,
+        Option<InteractableType>,
+    ),
 }
 impl DrawCall {
     fn order(&self) -> u8 {
         match self {
             DrawCall::Rect(_, _, _, _, _) => 0,
-            DrawCall::Text(_, _, _, _, _) => 1,
+            DrawCall::Text(_, _, _, _, _, _) => 1,
         }
     }
 }
@@ -187,9 +195,13 @@ impl Debug for DrawCall {
             DrawCall::Rect(x, y, w, h, c) => {
                 f.write_str(&format!("Rect({x},{y},{w:?},{h:?},{c:?})"))
             }
-            DrawCall::Text(x, y, text, _, _) => f.write_str(&format!("Text({x},{y},'{text}')")),
+            DrawCall::Text(x, y, text, _, _, _) => f.write_str(&format!("Text({x},{y},'{text}')")),
         }
     }
+}
+#[derive(Clone, PartialEq)]
+enum InteractableType {
+    Link(String),
 }
 struct GlobalDrawContext<'a> {
     /// The global CSS stylesheet
@@ -197,6 +209,12 @@ struct GlobalDrawContext<'a> {
     /// Buffer that all elements with unknown sizes are added to, such that any relative size to an unknown can later be evaluated.
     unknown_sized_elements: Vec<Option<ActualMeasurement>>,
 }
+#[derive(Default, Clone, Debug)]
+struct WebpageDebugInfo {
+    unknown_elements: Vec<String>,
+}
+
+const DEBUG_PAGE: &str = include_str!("debug.html");
 
 struct Toad {
     tabs: Vec<Webpage>,
@@ -243,6 +261,28 @@ impl Toad {
             match key.code {
                 event::KeyCode::Enter => {
                     self.draw(&stdout)?;
+                }
+                event::KeyCode::F(key) if key == 12 => {
+                    if let Some(tab) = self.tabs.get(self.tab_index) {
+                        let debug = tab.debug_info.clone();
+                        let html = DEBUG_PAGE
+                            .replace("{DEBUGINFO}", &sanitize(&format!("{:?}", debug)))
+                            .replace(
+                                "{PAGE}",
+                                &sanitize(
+                                    &tab.root
+                                        .as_ref()
+                                        .map(|f| f.print_recursive(0))
+                                        .unwrap_or(String::new()),
+                                ),
+                            );
+                        if let Some(tab) = parse_html(&html) {
+                            self.tab_index += 1;
+                            self.tabs.insert(self.tab_index, tab);
+                            self.draw_topbar(&stdout)?;
+                            self.draw(&stdout)?;
+                        }
+                    }
                 }
                 event::KeyCode::Tab => {
                     self.tab_index += 1;
@@ -453,7 +493,11 @@ impl Toad {
                         actual_cursor_y = y + h;
                     }
                 }
-                DrawCall::Text(x, y, text, ctx, parent_width) => {
+                DrawCall::Text(x, y, text, ctx, parent_width, parent_interactable) => {
+                    //let mut ctx = ctx;
+                    //if parent_interactable.is_some() {
+                    //    ctx.background_color = Specified(style::Color::Blue)
+                    //}
                     apply_draw_ctx(ctx, &mut last, &mut stdout.lock())?;
                     let width =
                         actualize_actual(parent_width, &global_ctx.unknown_sized_elements) / EM;

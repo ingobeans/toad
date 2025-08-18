@@ -3,9 +3,9 @@ use std::{collections::HashMap, sync::LazyLock};
 use regex::{Captures, Regex};
 
 use crate::{
-    Webpage,
+    Webpage, WebpageDebugInfo,
     css::parse_stylesheet,
-    element::{DEFAULT_ELEMENT_TYPE, Element, get_element_type},
+    element::{self, DEFAULT_ELEMENT_TYPE, Element, ElementType, NODE},
     utils::*,
 };
 
@@ -82,11 +82,18 @@ pub fn parse_special(text: &str) -> String {
         .replace("&quot;", "\"");
     parse_unicode(&new)
 }
+pub fn sanitize(text: &str) -> String {
+    text.replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+        .replace("\"", "&quot;")
+}
 
 pub fn parse_html(text: &str) -> Option<Webpage> {
     let mut buf: Vec<char> = text.trim().chars().collect();
     buf.reverse();
-    let root = parse(&mut buf).pop();
+    let mut debug_info = WebpageDebugInfo::default();
+    let root = parse(&mut buf, &mut debug_info).pop();
     let mut title = None;
     let mut global_style = Vec::new();
     if let Some(root) = &root {
@@ -99,11 +106,20 @@ pub fn parse_html(text: &str) -> Option<Webpage> {
         title,
         global_style,
         root: Some(root),
+        debug_info,
         ..Default::default()
     })
 }
+fn get_element_type(name: &str, debug_info: &mut WebpageDebugInfo) -> &'static ElementType {
+    element::get_element_type(name).unwrap_or_else(|| {
+        if !debug_info.unknown_elements.iter().any(|s| s == name) {
+            debug_info.unknown_elements.push(name.to_string());
+        };
+        &DEFAULT_ELEMENT_TYPE
+    })
+}
 
-pub fn parse(buf: &mut Vec<char>) -> Vec<Element> {
+pub fn parse(buf: &mut Vec<char>, debug_info: &mut WebpageDebugInfo) -> Vec<Element> {
     let mut elements = Vec::new();
     let mut state = ParseState::WaitingForElement;
     while let Some(char) = buf.pop() {
@@ -111,12 +127,10 @@ pub fn parse(buf: &mut Vec<char>) -> Vec<Element> {
             ParseState::InElementType(name, attributes) => {
                 if char == '>' {
                     if let ParseState::InElementType(name, attributes) = state {
-                        let mut element = Element::new(
-                            get_element_type(name.trim()).unwrap_or(&DEFAULT_ELEMENT_TYPE),
-                        );
+                        let mut element = Element::new(get_element_type(name.trim(), debug_info));
                         element.set_attributes(attributes);
                         if !element.ty.void_element && !element.ty.stops_parsing {
-                            element.children = parse(buf);
+                            element.children = parse(buf, debug_info);
                         } else if element.ty.stops_parsing {
                             let chars: Vec<char> = format!("</{name}>").chars().collect();
                             let text = pop_until_all(buf, &chars);
@@ -129,9 +143,7 @@ pub fn parse(buf: &mut Vec<char>) -> Vec<Element> {
                 } else if char == '/' {
                     buf.pop();
                     if let ParseState::InElementType(name, attributes) = state {
-                        let mut element = Element::new(
-                            get_element_type(name.trim()).unwrap_or(&DEFAULT_ELEMENT_TYPE),
-                        );
+                        let mut element = Element::new(get_element_type(name.trim(), debug_info));
                         element.set_attributes(attributes);
                         elements.push(element);
                         state = ParseState::WaitingForElement;
@@ -143,17 +155,34 @@ pub fn parse(buf: &mut Vec<char>) -> Vec<Element> {
                         continue;
                     };
                     if end != '=' {
+                        // handle attributes without =
+                        // (they default to empty string)
+                        // see https://html.spec.whatwg.org/multipage/syntax.html#attributes-2
                         buf.push(end);
+                        let key = key.iter().collect::<String>().trim().to_string();
+                        attributes.insert(key, String::new());
                         continue;
                     }
-                    let Some(quote_type) = buf.pop() else {
+                    let value = if let Some(char) = buf.last() {
+                        if *char != '"' && *char != '\'' {
+                            let (value, hit) = pop_until_any(buf, &[' ', '>']);
+                            if let Some(hit) = hit
+                                && hit == '>'
+                            {
+                                buf.push(hit);
+                            }
+                            value.iter().collect::<String>().trim().to_string()
+                        } else {
+                            let quote_type = buf.pop().unwrap();
+                            pop_until(buf, &quote_type)
+                                .iter()
+                                .collect::<String>()
+                                .trim()
+                                .to_string()
+                        }
+                    } else {
                         continue;
                     };
-                    let value = pop_until(buf, &quote_type)
-                        .iter()
-                        .collect::<String>()
-                        .trim()
-                        .to_string();
 
                     let key = key.iter().collect::<String>().trim().to_string();
                     attributes.insert(key, value);
@@ -189,7 +218,7 @@ pub fn parse(buf: &mut Vec<char>) -> Vec<Element> {
                 if let Some(Some(text)) = elements.last_mut().map(|f| &mut f.text) {
                     text.push(char);
                 } else {
-                    let mut element = Element::new(get_element_type("node").unwrap());
+                    let mut element = Element::new(&NODE);
                     element.text = Some(String::from(char));
                     elements.push(element);
                 }
@@ -201,7 +230,7 @@ pub fn parse(buf: &mut Vec<char>) -> Vec<Element> {
 
 #[cfg(test)]
 mod tests {
-    use crate::parsing::parse_special;
+    use crate::parsing::{parse_html, parse_special};
 
     #[test]
     fn test_character_encoding() {
@@ -209,5 +238,10 @@ mod tests {
             parse_special("nachos &amp; chips"),
             "nachos & chips".to_string()
         )
+    }
+    #[test]
+    fn test_parsing() {
+        let html = "<font color=\"red\">(archived)</font>";
+        println!("{:?}", parse_html(html).map(|f| f.root));
     }
 }

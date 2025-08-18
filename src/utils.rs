@@ -8,6 +8,16 @@ pub fn pop_until<T: PartialEq>(a: &mut Vec<T>, b: &T) -> Vec<T> {
     }
     popped
 }
+pub fn pop_until_not_whitespace(a: &mut Vec<char>) -> Vec<char> {
+    let mut popped = Vec::new();
+    while let Some(item) = a.pop() {
+        if item.is_whitespace() {
+            return popped;
+        }
+        popped.push(item);
+    }
+    popped
+}
 pub fn pop_until_any<T: PartialEq>(a: &mut Vec<T>, b: &[T]) -> (Vec<T>, Option<T>) {
     let mut popped = Vec::new();
     while let Some(item) = a.pop() {

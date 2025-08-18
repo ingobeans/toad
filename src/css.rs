@@ -53,7 +53,7 @@ fn parse_color_text(text: &str) -> Option<style::Color> {
         _ => None,
     }
 }
-fn parse_color(text: &str) -> Option<style::Color> {
+pub fn parse_color(text: &str) -> Option<style::Color> {
     if text.starts_with("rgb") {
         parse_rgb_text(text)
     } else if text.starts_with("#") {

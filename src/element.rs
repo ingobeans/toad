@@ -6,7 +6,7 @@ use std::{
 
 use crate::{
     ActualMeasurement, DEFAULT_DRAW_CTX, Display, DrawCall, ElementDrawContext, GlobalDrawContext,
-    Measurement, NonInheritedField::*, consts::*, css, parsing::parse_special,
+    InteractableType, Measurement, NonInheritedField::*, consts::*, css, parsing::parse_special,
 };
 use crossterm::{queue, style};
 
@@ -25,6 +25,16 @@ pub static DEFAULT_ELEMENT_TYPE: ElementType = ElementType {
     stops_parsing: false,
     void_element: false,
     draw_ctx: DEFAULT_DRAW_CTX,
+};
+pub static NODE: ElementType = ElementType {
+    name: "node",
+    draw_ctx: ElementDrawContext {
+        width: Specified(Measurement::FitContentWidth),
+        height: Specified(Measurement::FitContentHeight),
+        background_color: Inherit,
+        ..DEFAULT_DRAW_CTX
+    },
+    ..DEFAULT_ELEMENT_TYPE
 };
 static P: ElementType = ElementType {
     name: "p",
@@ -109,16 +119,6 @@ static PRE: ElementType = ElementType {
     ..DEFAULT_ELEMENT_TYPE
 };
 pub static ELEMENT_TYPES: &[ElementType] = &[
-    ElementType {
-        name: "node",
-        draw_ctx: ElementDrawContext {
-            width: Specified(Measurement::FitContentWidth),
-            height: Specified(Measurement::FitContentHeight),
-            background_color: Inherit,
-            ..DEFAULT_DRAW_CTX
-        },
-        ..DEFAULT_ELEMENT_TYPE
-    },
     BODY,
     P,
     BR,
@@ -200,7 +200,6 @@ pub static ELEMENT_TYPES: &[ElementType] = &[
     ElementType {
         name: "meta",
         void_element: true,
-        stops_parsing: false,
         ..DEFAULT_ELEMENT_TYPE
     },
     ElementType {
@@ -415,6 +414,7 @@ pub struct DrawData {
     pub parent_height: ActualMeasurement,
     pub x: u16,
     pub y: u16,
+    pub parent_interactable: Option<InteractableType>,
 }
 pub struct Element {
     pub ty: &'static ElementType,
@@ -452,7 +452,7 @@ impl Element {
         }
         self.attributes = attributes;
     }
-    fn print_recursive(&self, index: usize) -> String {
+    pub fn print_recursive(&self, index: usize) -> String {
         let children_text = match &self.text {
             Some(text) => text.clone(),
             None => {
@@ -500,6 +500,15 @@ impl Element {
         }
         style.merge_all(&self.style);
 
+        // if this element is a <font> (https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/font)
+        // make its "color" attribute overwrite the style's color.
+        // this is an old deprecated tag from html4, still used in some places though
+        if self.ty.name == "font" {
+            if let Some(color) = self.get_attribute("color") {
+                style.foreground_color = css::parse_color(color).or(style.foreground_color);
+            }
+        }
+
         // check all NonInheritedFields in case they are set to inherit, if so, inherit from parent_draw_context
 
         style
@@ -528,6 +537,7 @@ impl Element {
             draw_data.y += LH;
             draw_data.x = 0;
         }
+        let mut self_interactable = None;
 
         if self.ty.name == "node" {
             if let Some(text) = &self.text
@@ -547,6 +557,7 @@ impl Element {
                     text,
                     style,
                     draw_data.parent_width,
+                    draw_data.parent_interactable.clone(),
                 ));
                 draw_data.content_width = draw_data.content_width.max(width * EM);
                 draw_data.content_height = draw_data.content_height.max(final_y * LH + LH);
@@ -554,6 +565,11 @@ impl Element {
                 draw_data.y += final_y * EM;
             }
             return Ok(());
+        } else if self.ty.name == "a"
+            && let Some(link) = self.get_attribute("href")
+        {
+            // register link as interactable element
+            self_interactable = Some(InteractableType::Link(link.clone()));
         }
 
         // actualize width and height
@@ -574,16 +590,18 @@ impl Element {
             .content_height
             .max(actual_height.get_pixels_lossy());
 
-        let mut draw_data_parent_width = actual_width;
-        if let Some(pixels) = draw_data.parent_width.get_pixels()
+        let draw_data_parent_width = if let Some(pixels) = draw_data.parent_width.get_pixels()
             && pixels != 0
             && actual_width.get_pixels().is_none_or(|p| p > pixels)
         {
-            draw_data_parent_width = ActualMeasurement::Pixels(pixels)
-        }
+            ActualMeasurement::Pixels(pixels)
+        } else {
+            actual_width
+        };
         let mut child_data = DrawData {
             parent_width: draw_data_parent_width,
             parent_height: actual_height,
+            parent_interactable: self_interactable,
             ..Default::default()
         };
         for child in self.children.iter() {
@@ -601,7 +619,7 @@ impl Element {
                     *x += draw_data.x;
                     *y += draw_data.y;
                 }
-                DrawCall::Text(x, y, _, _, _) => {
+                DrawCall::Text(x, y, _, _, _, _) => {
                     *x += draw_data.x;
                     *y += draw_data.y;
                 }

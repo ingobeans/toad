@@ -363,10 +363,17 @@ impl Toad {
                     }
                 }
                 event::KeyCode::Char(char) => {
+                    let control = key.modifiers.contains(event::KeyModifiers::CONTROL);
                     if char == 'r' {
                         self.draw(&stdout)?;
                     } else if char == 'q' {
                         running = false;
+                    } else if char == 'w' && control {
+                        if self.tab_index < self.tabs.len() {
+                            self.tabs.remove(self.tab_index);
+                            self.draw_topbar(&stdout)?;
+                            self.draw(&stdout)?;
+                        }
                     } else if char == 'g' {
                         terminal::disable_raw_mode()?;
                         execute!(
@@ -381,7 +388,9 @@ impl Toad {
                         if let Ok(url) = Url::from_str(&buf)
                             && let Some(page) = self.get_url(url).await
                         {
-                            self.tab_index += 1;
+                            if !self.tabs.is_empty() {
+                                self.tab_index += 1;
+                            }
                             self.tabs.insert(self.tab_index, page);
                         }
 

@@ -1231,7 +1231,7 @@ dependencies = [
 
 [[package]]
 name = "toad"
-version = "0.7.18"
+version = "0.7.19"
 dependencies = [
  "crossterm",
  "regex",

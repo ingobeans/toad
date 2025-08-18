@@ -287,17 +287,15 @@ pub fn get_element_type(name: &str) -> Option<&'static ElementType> {
 fn disrespect_whitespace(text: &str) -> String {
     let text = text.replace("\n", "").replace("\r", "");
     let mut new = String::new();
-    let mut last = None;
+    let mut last_was_whitespace = true;
     for char in text.chars() {
         if char.is_whitespace() {
-            if let Some(last_char) = last
-                && last_char == char
-            {
+            if last_was_whitespace {
                 continue;
             }
-            last = Some(char);
+            last_was_whitespace = true;
         } else {
-            last = None;
+            last_was_whitespace = false;
         }
         new.push(char);
     }
@@ -648,6 +646,8 @@ mod tests {
     #[test]
     fn test_disrespect_whitespace() {
         let a = "helo        there\nmy\nfriend";
-        assert_eq!(disrespect_whitespace(a), String::from("helo theremyfriend"))
+        assert_eq!(disrespect_whitespace(a), String::from("helo theremyfriend"));
+        let b = "\t\t   hi";
+        assert_eq!(disrespect_whitespace(b), String::from("hi"))
     }
 }

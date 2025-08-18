@@ -97,6 +97,17 @@ static BODY: ElementType = ElementType {
     },
     ..DEFAULT_ELEMENT_TYPE
 };
+static PRE: ElementType = ElementType {
+    name: "pre",
+    draw_ctx: ElementDrawContext {
+        respect_whitespace: true,
+        width: Specified(Measurement::FitContentWidth),
+        height: Specified(Measurement::FitContentHeight),
+        display: Specified(Display::Block),
+        ..DEFAULT_DRAW_CTX
+    },
+    ..DEFAULT_ELEMENT_TYPE
+};
 pub static ELEMENT_TYPES: &[ElementType] = &[
     ElementType {
         name: "node",
@@ -114,6 +125,18 @@ pub static ELEMENT_TYPES: &[ElementType] = &[
     DIV,
     SPAN,
     B,
+    PRE,
+    ElementType {
+        name: "code",
+        draw_ctx: ElementDrawContext {
+            respect_whitespace: true,
+            width: Specified(Measurement::FitContentWidth),
+            height: Specified(Measurement::FitContentHeight),
+            display: Specified(Display::Inline),
+            ..DEFAULT_DRAW_CTX
+        },
+        ..DEFAULT_ELEMENT_TYPE
+    },
     ElementType {
         name: "em",
         draw_ctx: ElementDrawContext {
@@ -149,7 +172,7 @@ pub static ELEMENT_TYPES: &[ElementType] = &[
     },
     ElementType {
         name: "label",
-        ..DEFAULT_ELEMENT_TYPE
+        ..SPAN
     },
     ElementType {
         name: "picture",
@@ -206,22 +229,12 @@ pub static ELEMENT_TYPES: &[ElementType] = &[
     },
     ElementType {
         name: "link",
+        void_element: true,
         ..DEFAULT_ELEMENT_TYPE
     },
     ElementType {
         name: "title",
         stops_parsing: true,
-        ..DEFAULT_ELEMENT_TYPE
-    },
-    ElementType {
-        name: "pre",
-        draw_ctx: ElementDrawContext {
-            respect_whitespace: true,
-            width: Specified(Measurement::FitContentWidth),
-            height: Specified(Measurement::FitContentHeight),
-            display: Specified(Display::Block),
-            ..DEFAULT_DRAW_CTX
-        },
         ..DEFAULT_ELEMENT_TYPE
     },
     ElementType {

@@ -1,4 +1,6 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, sync::LazyLock};
+
+use regex::{Captures, Regex};
 
 use crate::{
     Webpage,
@@ -34,15 +36,51 @@ fn get_all_styles(element: &Element, buf: &mut String) {
         get_all_styles(child, buf);
     }
 }
+
+static DECIMAL_ENCODING_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"&#[\d]{1,4};").unwrap());
+
+static HEX_ENCODING_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"&#x[\d]{1,4};").unwrap());
+
+fn parse_unicode(text: &str) -> String {
+    let a = DECIMAL_ENCODING_RE
+        .replace_all(text, |caps: &Captures| {
+            let text: &str = &caps[0][2..caps[0].len() - 1];
+            if let Ok(parsed) = text.parse::<u32>() {
+                if let Some(char) = char::from_u32(parsed) {
+                    return char.to_string();
+                }
+            }
+
+            caps[0].to_string()
+        })
+        .to_string();
+    HEX_ENCODING_RE
+        .replace_all(&a, |caps: &Captures| {
+            let text: &str = &caps[0][2..caps[0].len() - 1];
+            if let Ok(parsed) = u32::from_str_radix(text, 16) {
+                if let Some(char) = char::from_u32(parsed) {
+                    return char.to_string();
+                }
+            }
+
+            caps[0].to_string()
+        })
+        .to_string()
+}
+
 /// Replaces HTML special character encodings, like &amp; with their actual drawable character, in this case, &
+///
+/// Also replaces `&#nnnn;` where `nnnn` are digits, with the corresponding character with code of `nnnn`, and same for `&#xhhhh`, where `hhhh` are hexadecimal digits
 ///
 /// Source: https://en.wikipedia.org/wiki/Character_encodings_in_HTML#Character_references
 pub fn parse_special(text: &str) -> String {
-    text.replace("&amp;", "&")
+    let new = text
+        .replace("&amp;", "&")
         .replace("&lt;", "<")
         .replace("&gt;", ">")
-        .replace("&quot;", "\"")
-        .replace("&apos;", "'")
+        .replace("&quot;", "\"");
+    parse_unicode(&new)
 }
 
 pub fn parse_html(text: &str) -> Option<Webpage> {

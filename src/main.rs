@@ -107,6 +107,8 @@ impl<T> NonInheritedField<T> {
 }
 use NonInheritedField::*;
 
+use crate::css::parse_stylesheet;
+
 #[derive(Clone, Copy, PartialEq)]
 struct ElementDrawContext {
     text_align: Option<TextAlignment>,
@@ -172,6 +174,16 @@ impl StyleTarget {
             }
         }
     }
+}
+
+fn refresh_style(page: &mut Webpage, assets: &HashMap<Url, DataEntry>) {
+    let mut global_style = Vec::new();
+    if let Some(root) = &page.root {
+        let mut all_styles = String::new();
+        get_all_styles(root, &mut all_styles, page.url.as_ref(), assets);
+        parse_stylesheet(&all_styles, &mut global_style);
+    }
+    page.global_style = global_style;
 }
 
 #[derive(PartialEq, Clone)]
@@ -240,7 +252,6 @@ enum DataEntry {
 }
 #[derive(Default, Clone, Debug)]
 struct WebpageDebugInfo {
-    info_log: Vec<String>,
     unknown_elements: Vec<String>,
     fetch_queue: Vec<(DataType, String)>,
 }
@@ -256,7 +267,7 @@ async fn get_data(url: Url, ty: DataType, client: Client) -> Option<DataEntry> {
             Some(DataEntry::Image(image))
         }
         DataType::PlainText => {
-            let text: String = resp.text().await.ok().map(|f| f.into())?;
+            let text: String = resp.text().await.ok()?;
             Some(DataEntry::PlainText(text))
         }
     }
@@ -297,6 +308,7 @@ impl Toad {
         if !self.tabs.is_empty() {
             self.tab_index += 1;
         }
+        refresh_style(&mut page, &self.fetched_assets);
         for (ty, source) in page.debug_info.fetch_queue.drain(..) {
             let options = Url::options().base_url(page.url.as_ref());
             let Ok(url) = options.parse(&source) else {
@@ -348,7 +360,7 @@ impl Toad {
                             }
                         }
                     }
-                    event::KeyCode::F(key) if key == 12 => {
+                    event::KeyCode::F(12) => {
                         if let Some(tab) = self.tabs.get(self.tab_index) {
                             let debug = tab.debug_info.clone();
                             let html = DEBUG_PAGE
@@ -425,6 +437,7 @@ impl Toad {
                         } else if char == 'w' && control {
                             if self.tab_index < self.tabs.len() {
                                 self.tabs.remove(self.tab_index);
+                                self.tab_index = self.tab_index.saturating_sub(1);
                                 self.draw_topbar(&stdout)?;
                                 self.draw(&stdout)?;
                             }
@@ -475,6 +488,9 @@ impl Toad {
             });
             // if any finished loading
             if !death_queue.is_empty() {
+                if let Some(page) = self.tabs.get_mut(self.tab_index) {
+                    refresh_style(page, &self.fetched_assets)
+                }
                 self.draw_topbar(&stdout)?;
                 self.draw(&stdout)?;
             }
@@ -677,13 +693,12 @@ impl Toad {
                     }
                 }
                 DrawCall::Text(x, y, text, mut ctx, parent_width, parent_interactable) => {
-                    if let Some(interactable) = parent_interactable {
-                        if let Some(tab_amt) = tab.tab_index
-                            && tab_amt == interactable.index
-                        {
-                            tab.hovered_interactable = Some(interactable);
-                            ctx.background_color = Specified(style::Color::Blue);
-                        }
+                    if let Some(interactable) = parent_interactable
+                        && let Some(tab_amt) = tab.tab_index
+                        && tab_amt == interactable.index
+                    {
+                        tab.hovered_interactable = Some(interactable);
+                        ctx.background_color = Specified(style::Color::Blue);
                     }
                     apply_draw_ctx(ctx, &mut last, &mut stdout.lock())?;
                     let width =

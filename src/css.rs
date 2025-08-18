@@ -50,6 +50,7 @@ fn parse_color_text(text: &str) -> Option<style::Color> {
         "navy" => Some(hex_to_rgb(0x000080)),
         "fuchs" => Some(hex_to_rgb(0xFF00FF)),
         "purple" => Some(hex_to_rgb(0x800080)),
+        "cyan" => Some(hex_to_rgb(0x00ffff)),
         _ => None,
     }
 }

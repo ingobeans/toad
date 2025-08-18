@@ -510,10 +510,10 @@ impl Element {
         // if this element is a <font> (https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/font)
         // make its "color" attribute overwrite the style's color.
         // this is an old deprecated tag from html4, still used in some places though
-        if self.ty.name == "font" {
-            if let Some(color) = self.get_attribute("color") {
-                style.foreground_color = css::parse_color(color).or(style.foreground_color);
-            }
+        if self.ty.name == "font"
+            && let Some(color) = self.get_attribute("color")
+        {
+            style.foreground_color = css::parse_color(color).or(style.foreground_color);
         }
 
         // check all NonInheritedFields in case they are set to inherit, if so, inherit from parent_draw_context
@@ -601,22 +601,23 @@ impl Element {
             if let Some(source) = self.get_attribute("src")
                 && !matches!(actual_width, ActualMeasurement::Waiting(_))
                 && !matches!(actual_height, ActualMeasurement::Waiting(_))
+                && actual_width.get_pixels_lossy() > 0
+                && actual_height.get_pixels_lossy() > 0
             {
-                if actual_width.get_pixels_lossy() > 0 && actual_height.get_pixels_lossy() > 0 {
-                    draw_data.draw_calls.push(DrawCall::Image(
-                        draw_data.x,
-                        draw_data.y,
-                        actual_width,
-                        actual_height,
-                        source.clone(),
-                    ));
-                    draw_data.content_width =
-                        draw_data.content_width.max(actual_width.get_pixels_lossy());
-                    draw_data.content_height = draw_data
-                        .content_height
-                        .max(actual_height.get_pixels_lossy());
-                }
+                draw_data.draw_calls.push(DrawCall::Image(
+                    draw_data.x,
+                    draw_data.y,
+                    actual_width,
+                    actual_height,
+                    source.clone(),
+                ));
+                draw_data.content_width =
+                    draw_data.content_width.max(actual_width.get_pixels_lossy());
+                draw_data.content_height = draw_data
+                    .content_height
+                    .max(actual_height.get_pixels_lossy());
             }
+
             draw_data.x += actual_width.get_pixels_lossy();
             if is_display_block {
                 draw_data.y += actual_height.get_pixels_lossy();

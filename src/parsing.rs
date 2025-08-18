@@ -1,10 +1,10 @@
 use std::{collections::HashMap, sync::LazyLock};
 
 use regex::{Captures, Regex};
+use reqwest::Url;
 
 use crate::{
-    DataType, Webpage, WebpageDebugInfo,
-    css::parse_stylesheet,
+    DataEntry, DataType, Webpage, WebpageDebugInfo,
     element::{self, DEFAULT_ELEMENT_TYPE, Element, ElementType, NODE},
     utils::*,
 };
@@ -26,14 +26,26 @@ fn find_title(element: &Element) -> Option<&Element> {
     }
     None
 }
-fn get_all_styles(element: &Element, buf: &mut String) {
+pub fn get_all_styles(
+    element: &Element,
+    buf: &mut String,
+    url: Option<&Url>,
+    assets: &HashMap<Url, DataEntry>,
+) {
     if element.ty.name == "style"
         && let Some(text) = &element.text
     {
         *buf += text
+    } else if element.ty.name == "link"
+        && let Some(source) = element.get_attribute("href")
+        && let Ok(source) = Url::options().base_url(url).parse(source)
+        && let Some(DataEntry::PlainText(data)) = assets.get(&source)
+    {
+        *buf += data;
     }
+
     for child in element.children.iter() {
-        get_all_styles(child, buf);
+        get_all_styles(child, buf, url, assets);
     }
 }
 
@@ -46,10 +58,10 @@ fn parse_unicode(text: &str) -> String {
     let a = DECIMAL_ENCODING_RE
         .replace_all(text, |caps: &Captures| {
             let text: &str = &caps[0][2..caps[0].len() - 1];
-            if let Ok(parsed) = text.parse::<u32>() {
-                if let Some(char) = char::from_u32(parsed) {
-                    return char.to_string();
-                }
+            if let Ok(parsed) = text.parse::<u32>()
+                && let Some(char) = char::from_u32(parsed)
+            {
+                return char.to_string();
             }
 
             caps[0].to_string()
@@ -58,10 +70,10 @@ fn parse_unicode(text: &str) -> String {
     HEX_ENCODING_RE
         .replace_all(&a, |caps: &Captures| {
             let text: &str = &caps[0][2..caps[0].len() - 1];
-            if let Ok(parsed) = u32::from_str_radix(text, 16) {
-                if let Some(char) = char::from_u32(parsed) {
-                    return char.to_string();
-                }
+            if let Ok(parsed) = u32::from_str_radix(text, 16)
+                && let Some(char) = char::from_u32(parsed)
+            {
+                return char.to_string();
             }
 
             caps[0].to_string()
@@ -95,16 +107,11 @@ pub fn parse_html(text: &str) -> Option<Webpage> {
     let mut debug_info = WebpageDebugInfo::default();
     let root = parse(&mut buf, &mut debug_info).pop();
     let mut title = None;
-    let mut global_style = Vec::new();
     if let Some(root) = &root {
         title = find_title(root).map(|element| element.text.clone().unwrap());
-        let mut all_styles = String::new();
-        get_all_styles(root, &mut all_styles);
-        parse_stylesheet(&all_styles, &mut global_style);
     }
     root.map(|root| Webpage {
         title,
-        global_style,
         root: Some(root),
         debug_info,
         ..Default::default()
@@ -118,9 +125,14 @@ fn get_element_type(name: &str, debug_info: &mut WebpageDebugInfo) -> &'static E
         &DEFAULT_ELEMENT_TYPE
     })
 }
-fn element_type_to_datatype(ty: &str) -> Option<DataType> {
-    match ty {
-        "img" => Some(DataType::Image),
+fn element_to_datatype(element: &Element) -> Option<(DataType, String)> {
+    match element.ty.name {
+        "img" => element
+            .get_attribute("src")
+            .map(|source| (DataType::Image, source.clone())),
+        "link" => element
+            .get_attribute("href")
+            .map(|source| (DataType::PlainText, source.clone())),
         _ => None,
     }
 }
@@ -135,12 +147,10 @@ pub fn parse(buf: &mut Vec<char>, debug_info: &mut WebpageDebugInfo) -> Vec<Elem
                     if let ParseState::InElementType(name, attributes) = state {
                         let mut element = Element::new(get_element_type(name.trim(), debug_info));
 
-                        if let Some(src) = attributes.get("src")
-                            && let Some(ty) = element_type_to_datatype(element.ty.name)
-                        {
-                            debug_info.fetch_queue.push((ty, src.clone()));
-                        }
                         element.set_attributes(attributes);
+                        if let Some(asset) = element_to_datatype(&element) {
+                            debug_info.fetch_queue.push(asset);
+                        }
                         if !element.ty.void_element && !element.ty.stops_parsing {
                             element.children = parse(buf, debug_info);
                         } else if element.ty.stops_parsing {
@@ -157,12 +167,10 @@ pub fn parse(buf: &mut Vec<char>, debug_info: &mut WebpageDebugInfo) -> Vec<Elem
                     if let ParseState::InElementType(name, attributes) = state {
                         let mut element = Element::new(get_element_type(name.trim(), debug_info));
 
-                        if let Some(src) = attributes.get("src")
-                            && let Some(ty) = element_type_to_datatype(element.ty.name)
-                        {
-                            debug_info.fetch_queue.push((ty, src.clone()));
-                        }
                         element.set_attributes(attributes);
+                        if let Some(asset) = element_to_datatype(&element) {
+                            debug_info.fetch_queue.push(asset);
+                        }
                         elements.push(element);
                         state = ParseState::WaitingForElement;
                     }

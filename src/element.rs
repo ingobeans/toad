@@ -6,7 +6,7 @@ use std::{
 
 use crate::{
     ActualMeasurement, DEFAULT_DRAW_CTX, Display, DrawCall, ElementDrawContext, GlobalDrawContext,
-    Measurement, NonInheritedField::*, consts::*, css,
+    Measurement, NonInheritedField::*, consts::*, css, parsing::parse_special,
 };
 use crossterm::{queue, style};
 
@@ -520,11 +520,12 @@ impl Element {
             if let Some(text) = &self.text
                 && (!is_whitespace(text) || style.respect_whitespace)
             {
-                let text = if style.respect_whitespace {
+                let mut text = if style.respect_whitespace {
                     text.clone()
                 } else {
                     disrespect_whitespace(text)
                 };
+                text = parse_special(&text);
                 let (text, width, final_x, final_y) =
                     fit_text_in_width(&text, draw_data.parent_width, draw_data.x);
                 draw_data.draw_calls.push(DrawCall::Text(

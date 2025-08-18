@@ -34,6 +34,16 @@ fn get_all_styles(element: &Element, buf: &mut String) {
         get_all_styles(child, buf);
     }
 }
+/// Replaces HTML special character encodings, like &amp; with their actual drawable character, in this case, &
+///
+/// Source: https://en.wikipedia.org/wiki/Character_encodings_in_HTML#Character_references
+pub fn parse_special(text: &str) -> String {
+    text.replace("&amp;", "&")
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&quot;", "\"")
+        .replace("&apos;", "'")
+}
 
 pub fn parse_html(text: &str) -> Option<Webpage> {
     let mut buf: Vec<char> = text.trim().chars().collect();
@@ -149,4 +159,17 @@ pub fn parse(buf: &mut Vec<char>) -> Vec<Element> {
         }
     }
     elements
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::parsing::parse_special;
+
+    #[test]
+    fn test_character_encoding() {
+        assert_eq!(
+            parse_special("nachos &amp; chips"),
+            "nachos & chips".to_string()
+        )
+    }
 }

@@ -188,6 +188,22 @@ pub fn parse_ruleset(text: &str, ctx: &mut ElementDrawContext) {
     }
 }
 
+fn pop_until_outside(text: &mut Vec<char>) {
+    let mut count = 0;
+    while let Some(popped) = text.pop() {
+        match popped {
+            '{' => count += 1,
+            '}' => {
+                count -= 1;
+                if count == 0 {
+                    return;
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
 pub fn parse_stylesheet(text: &str, style: &mut HashMap<StyleTarget, ElementDrawContext>) {
     let mut chars: Vec<char> = text.chars().collect();
     chars.reverse();
@@ -195,6 +211,11 @@ pub fn parse_stylesheet(text: &str, style: &mut HashMap<StyleTarget, ElementDraw
         if char.is_whitespace() {
             continue;
         }
+        if char == '@' {
+            pop_until_outside(&mut chars);
+            continue;
+        }
+
         chars.push(char);
         let specifiers: String = pop_until(&mut chars, &'{').iter().collect();
         let data: String = pop_until(&mut chars, &'}').iter().collect();
@@ -219,5 +240,25 @@ pub fn parse_stylesheet(text: &str, style: &mut HashMap<StyleTarget, ElementDraw
                 style.insert(target, ctx);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::css::pop_until_outside;
+
+    #[test]
+    fn test_pop_until_outside() {
+        let mut chars: Vec<char> = "@wahoo { h { rgr grg} wello {w aw a wa} }hello {wa}"
+            .chars()
+            .collect();
+        chars.reverse();
+        pop_until_outside(&mut chars);
+        chars.reverse();
+        for char in &chars {
+            print!("{char}");
+        }
+        println!("");
+        assert_eq!("hello {wa}".chars().collect::<Vec<char>>(), chars)
     }
 }

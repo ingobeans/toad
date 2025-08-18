@@ -1,5 +1,3 @@
-use std::collections::HashMap;
-
 use crossterm::style;
 
 use crate::{
@@ -205,8 +203,31 @@ fn pop_until_outside(text: &mut Vec<char>) {
         }
     }
 }
-
-pub fn parse_stylesheet(text: &str, style: &mut HashMap<StyleTarget, ElementDrawContext>) {
+fn parse_target(specifier: &str, type_requirement: Option<String>) -> Option<StyleTarget> {
+    let char = specifier.chars().next()?;
+    let target: StyleTarget = if char == '#' {
+        StyleTarget::Id(specifier[1..].to_string(), type_requirement)
+    } else if char == '.' {
+        StyleTarget::Class(specifier[1..].to_string(), type_requirement)
+    } else if specifier.contains(".") || specifier.contains("#") {
+        let ty: &str;
+        let new: String;
+        if specifier.contains(".") {
+            let s;
+            (ty, s) = specifier.split_once(".")?;
+            new = format!(".{s}");
+        } else {
+            let s;
+            (ty, s) = specifier.split_once("#")?;
+            new = format!("#{s}");
+        }
+        parse_target(&new, Some(ty.to_string()))?
+    } else {
+        StyleTarget::ElementType(specifier.to_string())
+    };
+    Some(target)
+}
+pub fn parse_stylesheet(text: &str, style: &mut Vec<(StyleTarget, ElementDrawContext)>) {
     let mut chars: Vec<char> = text.chars().collect();
     chars.reverse();
     while let Some(char) = chars.pop() {
@@ -226,28 +247,37 @@ pub fn parse_stylesheet(text: &str, style: &mut HashMap<StyleTarget, ElementDraw
 
         for specifier in specifiers.split(",") {
             let specifier = specifier.trim();
-            let Some(char) = specifier.chars().next() else {
+            let Some(target) = parse_target(specifier, None) else {
                 continue;
             };
-            let target = if char == '#' {
-                StyleTarget::Id(specifier[1..].to_string())
-            } else if char == '.' {
-                StyleTarget::Class(specifier[1..].to_string())
-            } else {
-                StyleTarget::ElementType(specifier.to_string())
-            };
-            if let Some(old) = style.get_mut(&target) {
-                old.merge_all(&ctx);
-            } else {
-                style.insert(target, ctx);
-            }
+            style.push((target, ctx));
         }
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::css::pop_until_outside;
+    use crate::css::{StyleTarget, parse_target, pop_until_outside};
+
+    #[test]
+    fn test_parse_target() {
+        assert_eq!(
+            parse_target("div#wa", None),
+            Some(StyleTarget::Id("wa".to_string(), Some("div".to_string())))
+        );
+        assert_eq!(
+            parse_target("#wa", None),
+            Some(StyleTarget::Id("wa".to_string(), None))
+        );
+        assert_eq!(
+            parse_target(".wa", None),
+            Some(StyleTarget::Class("wa".to_string(), None))
+        );
+        assert_eq!(
+            parse_target("h1", None),
+            Some(StyleTarget::ElementType("h1".to_string()))
+        );
+    }
 
     #[test]
     fn test_pop_until_outside() {
@@ -261,6 +291,6 @@ mod tests {
             print!("{char}");
         }
         println!("");
-        assert_eq!("hello {wa}".chars().collect::<Vec<char>>(), chars)
+        assert_eq!(chars, "hello {wa}".chars().collect::<Vec<char>>())
     }
 }

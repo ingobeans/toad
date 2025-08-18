@@ -1,7 +1,6 @@
 use crossterm::{cursor, event, execute, queue, style, terminal};
 use reqwest::{Client, Url};
 use std::{
-    collections::HashMap,
     fmt::Debug,
     io::{self, Stdout, Write, stdout},
     str::FromStr,
@@ -22,7 +21,7 @@ struct Webpage {
     title: Option<String>,
     url: Option<Url>,
     root: Option<Element>,
-    global_style: HashMap<StyleTarget, ElementDrawContext>,
+    global_style: Vec<(StyleTarget, ElementDrawContext)>,
     scroll_y: u16,
 }
 #[derive(Clone, Copy, PartialEq)]
@@ -144,16 +143,25 @@ impl ElementDrawContext {
 
 #[derive(Clone, Hash, PartialEq, Eq, Debug)]
 enum StyleTarget {
+    /// Target by element type (Name)
     ElementType(String),
-    Class(String),
-    Id(String),
+    /// Target by element class (Class name, Optional element type requirement)
+    Class(String, Option<String>),
+    /// Target by element id (Id, Optional element type requirement)
+    Id(String, Option<String>),
 }
 impl StyleTarget {
     fn matches(&self, element: &Element) -> bool {
         match self {
             StyleTarget::ElementType(ty) => element.ty.name == ty,
-            StyleTarget::Class(class) => element.classes.contains(class),
-            StyleTarget::Id(id) => element.get_attribute("id").is_some_and(|i| i == id),
+            StyleTarget::Class(class, ty) => {
+                element.classes.contains(class)
+                    && ty.as_ref().is_none_or(|ty| ty == element.ty.name)
+            }
+            StyleTarget::Id(id, ty) => {
+                element.get_attribute("id").is_some_and(|i| i == id)
+                    && ty.as_ref().is_none_or(|ty| ty == element.ty.name)
+            }
         }
     }
 }
@@ -185,7 +193,7 @@ impl Debug for DrawCall {
 }
 struct GlobalDrawContext<'a> {
     /// The global CSS stylesheet
-    global_style: &'a HashMap<StyleTarget, ElementDrawContext>,
+    global_style: &'a Vec<(StyleTarget, ElementDrawContext)>,
     /// Buffer that all elements with unknown sizes are added to, such that any relative size to an unknown can later be evaluated.
     unknown_sized_elements: Vec<Option<ActualMeasurement>>,
 }

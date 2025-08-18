@@ -40,7 +40,7 @@ pub fn parse_html(text: &str) -> Option<Webpage> {
     buf.reverse();
     let root = parse(&mut buf).pop();
     let mut title = None;
-    let mut global_style = HashMap::new();
+    let mut global_style = Vec::new();
     if let Some(root) = &root {
         title = find_title(root).map(|element| element.text.clone().unwrap());
         let mut all_styles = String::new();

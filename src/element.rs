@@ -563,10 +563,11 @@ impl Element {
             .max(actual_height.get_pixels_lossy());
 
         let mut draw_data_parent_width = actual_width;
-        if let Some(pixels) = draw_data.parent_width.get_pixels() {
-            if pixels != 0 && actual_width.get_pixels().is_none_or(|p| p > pixels) {
-                draw_data_parent_width = ActualMeasurement::Pixels(pixels)
-            }
+        if let Some(pixels) = draw_data.parent_width.get_pixels()
+            && pixels != 0
+            && actual_width.get_pixels().is_none_or(|p| p > pixels)
+        {
+            draw_data_parent_width = ActualMeasurement::Pixels(pixels)
         }
         let mut child_data = DrawData {
             parent_width: draw_data_parent_width,

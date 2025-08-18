@@ -109,7 +109,7 @@ struct ElementDrawContext {
     bold: bool,
     italics: bool,
     respect_whitespace: bool,
-    width: Option<Measurement>,
+    width: NonInheritedField<Measurement>,
     height: NonInheritedField<Measurement>,
 }
 static DEFAULT_DRAW_CTX: ElementDrawContext = ElementDrawContext {
@@ -120,7 +120,7 @@ static DEFAULT_DRAW_CTX: ElementDrawContext = ElementDrawContext {
     bold: false,
     italics: false,
     respect_whitespace: false,
-    width: None,
+    width: Unset,
     height: Unset,
 };
 impl ElementDrawContext {
@@ -128,7 +128,6 @@ impl ElementDrawContext {
     fn merge_inherit(&mut self, other: &ElementDrawContext) {
         self.text_align = other.text_align.or(self.text_align);
         self.foreground_color = other.foreground_color.or(self.foreground_color);
-        self.width = other.width.or(self.width);
         self.bold |= other.bold;
         self.italics |= other.italics;
         self.respect_whitespace |= other.respect_whitespace;
@@ -138,6 +137,7 @@ impl ElementDrawContext {
         self.merge_inherit(other);
         self.display = other.display.set_or(self.display);
         self.height = other.height.set_or(self.height);
+        self.width = other.width.set_or(self.width);
         self.background_color = other.background_color.set_or(self.background_color);
     }
 }
@@ -290,9 +290,10 @@ impl Toad {
                         {
                             self.tab_index += 1;
                             self.tabs.insert(self.tab_index, page);
-                            self.draw_topbar(&stdout)?;
                         }
 
+                        queue!(stdout, cursor::Hide)?;
+                        self.draw_topbar(&stdout)?;
                         self.draw(&stdout)?;
                     }
                 }
@@ -448,12 +449,15 @@ impl Toad {
                     apply_draw_ctx(ctx, &mut last, &mut stdout.lock())?;
                     let width =
                         actualize_actual(parent_width, &global_ctx.unknown_sized_elements) / EM;
-                    for (index, mut line) in text.lines().enumerate() {
+                    for (index, line) in text.lines().enumerate() {
                         let text_len = line.len() as u16;
                         let x = x / EM + start_x;
+
                         let offset_x = match ctx.text_align {
-                            Some(TextAlignment::Centre) => (width - x) / 2 - text_len / 2,
-                            Some(TextAlignment::Right) => width - text_len,
+                            Some(TextAlignment::Centre) if width > x + text_len => {
+                                (width - x) / 2 - text_len / 2
+                            }
+                            Some(TextAlignment::Right) if width > text_len => width - text_len,
                             _ => 0,
                         };
                         let x = x + offset_x;
@@ -467,7 +471,7 @@ impl Toad {
                             if x >= screen_width {
                                 continue;
                             }
-                            panic!();
+                            continue;
                         }
                         let y = y - tab.scroll_y;
                         let mut chunks = Vec::new();

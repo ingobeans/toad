@@ -30,11 +30,21 @@ static P: ElementType = ElementType {
     name: "p",
     draw_ctx: ElementDrawContext {
         display: Specified(Display::Block),
-        width: Some(Measurement::FitContentWidth),
+        width: Specified(Measurement::FitContentWidth),
         height: Specified(Measurement::FitContentHeight),
         ..DEFAULT_DRAW_CTX
     },
     ..DEFAULT_ELEMENT_TYPE
+};
+static B: ElementType = ElementType {
+    name: "b",
+    draw_ctx: ElementDrawContext {
+        bold: true,
+        width: Specified(Measurement::FitContentWidth),
+        height: Specified(Measurement::FitContentHeight),
+        ..DEFAULT_DRAW_CTX
+    },
+    ..SPAN
 };
 static H1: ElementType = ElementType {
     name: "h1",
@@ -42,7 +52,7 @@ static H1: ElementType = ElementType {
         bold: true,
         foreground_color: Some(RED),
         display: Specified(Display::Block),
-        width: Some(Measurement::FitContentWidth),
+        width: Specified(Measurement::FitContentWidth),
         height: Specified(Measurement::FitContentHeight),
         ..DEFAULT_DRAW_CTX
     },
@@ -70,7 +80,8 @@ static DIV: ElementType = ElementType {
 static SPAN: ElementType = ElementType {
     name: "span",
     draw_ctx: ElementDrawContext {
-        width: Some(Measurement::FitContentWidth),
+        width: Specified(Measurement::FitContentWidth),
+        height: Specified(Measurement::FitContentHeight),
         ..DEFAULT_DRAW_CTX
     },
     ..DEFAULT_ELEMENT_TYPE
@@ -78,7 +89,7 @@ static SPAN: ElementType = ElementType {
 static BODY: ElementType = ElementType {
     name: "body",
     draw_ctx: ElementDrawContext {
-        width: Some(Measurement::PercentWidth(1.0)),
+        width: Specified(Measurement::PercentWidth(1.0)),
         height: Specified(Measurement::PercentHeight(1.0)),
         background_color: Specified(DEFAULT_BACKGROUND_COLOR),
         display: Specified(Display::Block),
@@ -90,6 +101,8 @@ pub static ELEMENT_TYPES: &[ElementType] = &[
     ElementType {
         name: "node",
         draw_ctx: ElementDrawContext {
+            width: Specified(Measurement::FitContentWidth),
+            height: Specified(Measurement::FitContentHeight),
             background_color: Inherit,
             ..DEFAULT_DRAW_CTX
         },
@@ -100,11 +113,20 @@ pub static ELEMENT_TYPES: &[ElementType] = &[
     BR,
     DIV,
     SPAN,
-    ElementType { name: "b", ..P },
-    ElementType { name: "em", ..P },
+    B,
+    ElementType {
+        name: "em",
+        draw_ctx: ElementDrawContext {
+            italics: true,
+            width: Specified(Measurement::FitContentWidth),
+            height: Specified(Measurement::FitContentHeight),
+            ..DEFAULT_DRAW_CTX
+        },
+        ..SPAN
+    },
     ElementType {
         name: "strong",
-        ..P
+        ..B
     },
     ElementType { name: "dl", ..P },
     ElementType { name: "dt", ..P },
@@ -120,6 +142,10 @@ pub static ELEMENT_TYPES: &[ElementType] = &[
     ElementType {
         name: "main",
         ..BODY
+    },
+    ElementType {
+        name: "article",
+        ..DIV
     },
     ElementType {
         name: "label",
@@ -191,7 +217,7 @@ pub static ELEMENT_TYPES: &[ElementType] = &[
         name: "pre",
         draw_ctx: ElementDrawContext {
             respect_whitespace: true,
-            width: Some(Measurement::FitContentWidth),
+            width: Specified(Measurement::FitContentWidth),
             height: Specified(Measurement::FitContentHeight),
             display: Specified(Display::Block),
             ..DEFAULT_DRAW_CTX
@@ -220,10 +246,14 @@ pub static ELEMENT_TYPES: &[ElementType] = &[
     ElementType { name: "h5", ..H1 },
     ElementType { name: "h6", ..H1 },
 ];
-pub fn fit_text_in_width(text: &str, parent_width: ActualMeasurement) -> (String, u16, u16) {
+pub fn fit_text_in_width(
+    text: &str,
+    parent_width: ActualMeasurement,
+    starting_x: u16,
+) -> (String, u16, u16, u16) {
     let mut parts = String::new();
     let mut width = 0;
-    let mut x = 0;
+    let mut x = starting_x / EM;
     let mut y = 0;
     let parent_width = parent_width.get_pixels();
     for char in text.chars() {
@@ -245,7 +275,7 @@ pub fn fit_text_in_width(text: &str, parent_width: ActualMeasurement) -> (String
         }
     }
     width = width.max(x);
-    (parts, width, y)
+    (parts, width, x, y)
 }
 pub fn get_element_type(name: &str) -> Option<&'static ElementType> {
     if !ELEMENT_TYPES.iter().any(|f| f.name == name) {
@@ -497,7 +527,8 @@ impl Element {
                 } else {
                     disrespect_whitespace(text)
                 };
-                let (text, width, height) = fit_text_in_width(&text, draw_data.parent_width);
+                let (text, width, final_x, final_y) =
+                    fit_text_in_width(&text, draw_data.parent_width, draw_data.x);
                 draw_data.draw_calls.push(DrawCall::Text(
                     draw_data.x,
                     draw_data.y,
@@ -506,7 +537,9 @@ impl Element {
                     draw_data.parent_width,
                 ));
                 draw_data.content_width = draw_data.content_width.max(width * EM);
-                draw_data.content_height = draw_data.content_height.max(height * LH + LH);
+                draw_data.content_height = draw_data.content_height.max(final_y * LH + LH);
+                draw_data.x = final_x * EM;
+                draw_data.y += final_y * EM;
             }
             return Ok(());
         }
@@ -529,8 +562,14 @@ impl Element {
             .content_height
             .max(actual_height.get_pixels_lossy());
 
+        let mut draw_data_parent_width = actual_width;
+        if let Some(pixels) = draw_data.parent_width.get_pixels() {
+            if pixels != 0 && actual_width.get_pixels().is_none_or(|p| p > pixels) {
+                draw_data_parent_width = ActualMeasurement::Pixels(pixels)
+            }
+        }
         let mut child_data = DrawData {
-            parent_width: actual_width,
+            parent_width: draw_data_parent_width,
             parent_height: actual_height,
             ..Default::default()
         };

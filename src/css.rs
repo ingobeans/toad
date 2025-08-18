@@ -147,7 +147,7 @@ fn try_apply_rule(ctx: &mut ElementDrawContext, rule: &str) {
                 ctx.foreground_color = Some(color);
             }
         }
-        "background-color" => {
+        "background-color" | "background" => {
             if value == "inherit" {
                 ctx.background_color = Inherit;
             } else if let Some(color) = parse_color(value) {
@@ -167,8 +167,10 @@ fn try_apply_rule(ctx: &mut ElementDrawContext, rule: &str) {
             }
         }
         "width" => {
-            if let Some(width) = parse_width(value) {
-                ctx.width = Some(width);
+            if value == "inherit" {
+                ctx.width = Inherit;
+            } else if let Some(width) = parse_width(value) {
+                ctx.width = Specified(width);
             }
         }
         "height" => {

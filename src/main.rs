@@ -1,10 +1,13 @@
 use crossterm::{cursor, event, execute, queue, style, terminal};
 use reqwest::{Client, Url};
 use std::{
+    collections::HashMap,
     fmt::Debug,
     io::{self, Stdout, Write, stdout},
     str::FromStr,
+    time::Duration,
 };
+use tokio::task::JoinHandle;
 
 use consts::*;
 use element::*;
@@ -173,6 +176,8 @@ impl StyleTarget {
 
 #[derive(PartialEq, Clone)]
 enum DrawCall {
+    /// X, Y, W, H, Image Source Link
+    Image(u16, u16, ActualMeasurement, ActualMeasurement, String),
     /// X, Y, W, H, Color
     Rect(u16, u16, ActualMeasurement, ActualMeasurement, style::Color),
     /// X, Y, Text, DrawContext, Parent Interactable
@@ -189,13 +194,17 @@ impl DrawCall {
     fn order(&self) -> u8 {
         match self {
             DrawCall::Rect(_, _, _, _, _) => 0,
-            DrawCall::Text(_, _, _, _, _, _) => 1,
+            DrawCall::Image(_, _, _, _, _) => 1,
+            DrawCall::Text(_, _, _, _, _, _) => 2,
         }
     }
 }
 impl Debug for DrawCall {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            DrawCall::Image(x, y, w, h, source) => {
+                f.write_str(&format!("Rect({x},{y},{w:?},{h:?},{source:?})"))
+            }
             DrawCall::Rect(x, y, w, h, c) => {
                 f.write_str(&format!("Rect({x},{y},{w:?},{h:?},{c:?})"))
             }
@@ -220,29 +229,59 @@ struct GlobalDrawContext<'a> {
     /// Keeps track of current index for new interactables. Used so all interactables can have a unique ID
     interactable_index: usize,
 }
+#[derive(Clone, Debug)]
+enum DataType {
+    PlainText,
+    Image,
+}
+enum DataEntry {
+    PlainText(String),
+    Image(image::DynamicImage),
+}
 #[derive(Default, Clone, Debug)]
 struct WebpageDebugInfo {
+    info_log: Vec<String>,
     unknown_elements: Vec<String>,
+    fetch_queue: Vec<(DataType, String)>,
 }
 
 const DEBUG_PAGE: &str = include_str!("debug.html");
 
+async fn get_data(url: Url, ty: DataType, client: Client) -> Option<DataEntry> {
+    let resp = client.get(url).send().await.ok()?;
+    match ty {
+        DataType::Image => {
+            let bytes: Vec<u8> = resp.bytes().await.ok().map(|f| f.into())?;
+            let image = image::load_from_memory(&bytes).ok()?;
+            Some(DataEntry::Image(image))
+        }
+        DataType::PlainText => {
+            let text: String = resp.text().await.ok().map(|f| f.into())?;
+            Some(DataEntry::PlainText(text))
+        }
+    }
+}
+
+type FetchFuture = JoinHandle<Option<DataEntry>>;
+
+#[derive(Default)]
 struct Toad {
     tabs: Vec<Webpage>,
     tab_index: usize,
     client: Client,
+    fetched_assets: HashMap<Url, DataEntry>,
+    fetches: Vec<(Url, FetchFuture)>,
 }
 impl Toad {
-    fn new(tabs: Vec<Webpage>) -> Result<Self, reqwest::Error> {
+    fn new() -> Result<Self, reqwest::Error> {
         let client = Client::builder()
             .user_agent(
                 "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:141.0) Gecko/20100101 Firefox/141.0",
             )
             .build()?;
         Ok(Self {
-            tabs,
-            tab_index: 0,
             client,
+            ..Default::default()
         })
     }
     async fn get_url(&self, url: Url) -> Option<Webpage> {
@@ -254,6 +293,21 @@ impl Toad {
             f
         })
     }
+    fn open_page(&mut self, mut page: Webpage) {
+        if !self.tabs.is_empty() {
+            self.tab_index += 1;
+        }
+        for (ty, source) in page.debug_info.fetch_queue.drain(..) {
+            let options = Url::options().base_url(page.url.as_ref());
+            let Ok(url) = options.parse(&source) else {
+                continue;
+            };
+            let handle = tokio::spawn(get_data(url.clone(), ty, self.client.clone()));
+            self.fetches.push((url, handle));
+        }
+
+        self.tabs.insert(self.tab_index, page);
+    }
     async fn run(&mut self) -> io::Result<()> {
         let mut running = true;
         let mut stdout = stdout();
@@ -262,144 +316,167 @@ impl Toad {
         self.draw_topbar(&stdout)?;
         self.draw(&stdout)?;
         while running {
-            let event = event::read()?;
-            if !event.is_key_press() {
-                continue;
-            }
-            let event::Event::Key(key) = event else {
-                continue;
-            };
-            match key.code {
-                event::KeyCode::Enter => {
-                    let Some(tab) = self.tabs.get(self.tab_index) else {
-                        continue;
-                    };
-                    let Some(hovered) = &tab.hovered_interactable else {
-                        continue;
-                    };
-                    match &hovered.ty {
-                        InteractableType::Link(path) => {
-                            let options = Url::options().base_url(tab.url.as_ref());
-                            let Ok(url) = options.parse(path) else {
-                                continue;
-                            };
-                            if let Some(page) = self.get_url(url).await {
-                                self.tab_index += 1;
-                                self.tabs.insert(self.tab_index, page);
-                            }
+            if event::poll(Duration::from_secs(1))? {
+                let event = event::read()?;
+                if !event.is_key_press() {
+                    continue;
+                }
+                let event::Event::Key(key) = event else {
+                    continue;
+                };
+                match key.code {
+                    event::KeyCode::Enter => {
+                        let Some(tab) = self.tabs.get(self.tab_index) else {
+                            continue;
+                        };
+                        let Some(hovered) = &tab.hovered_interactable else {
+                            continue;
+                        };
+                        match &hovered.ty {
+                            InteractableType::Link(path) => {
+                                let options = Url::options().base_url(tab.url.as_ref());
+                                let Ok(url) = options.parse(path) else {
+                                    continue;
+                                };
+                                if let Some(page) = self.get_url(url).await {
+                                    self.tab_index += 1;
+                                    self.tabs.insert(self.tab_index, page);
+                                }
 
-                            self.draw_topbar(&stdout)?;
-                            self.draw(&stdout)?;
-                        }
-                    }
-                }
-                event::KeyCode::F(key) if key == 12 => {
-                    if let Some(tab) = self.tabs.get(self.tab_index) {
-                        let debug = tab.debug_info.clone();
-                        let html = DEBUG_PAGE
-                            .replace("{DEBUGINFO}", &sanitize(&format!("{:?}", debug)))
-                            .replace(
-                                "{PAGE}",
-                                &sanitize(
-                                    &tab.root
-                                        .as_ref()
-                                        .map(|f| f.print_recursive(0))
-                                        .unwrap_or(String::new()),
-                                ),
-                            );
-                        if let Some(tab) = parse_html(&html) {
-                            self.tab_index += 1;
-                            self.tabs.insert(self.tab_index, tab);
-                            self.draw_topbar(&stdout)?;
-                            self.draw(&stdout)?;
-                        }
-                    }
-                }
-                event::KeyCode::Tab => {
-                    self.tab_index += 1;
-                    if self.tab_index >= self.tabs.len() {
-                        self.tab_index = 0;
-                    }
-                    self.draw_topbar(&stdout)?;
-                    self.draw(&stdout)?;
-                }
-                event::KeyCode::Down => {
-                    if let Some(tab) = self.tabs.get_mut(self.tab_index) {
-                        tab.scroll_y += 1;
-                        self.draw(&stdout)?;
-                    }
-                }
-                event::KeyCode::Up => {
-                    if let Some(tab) = self.tabs.get_mut(self.tab_index) {
-                        tab.scroll_y = tab.scroll_y.saturating_sub(1);
-                        self.draw(&stdout)?;
-                    }
-                }
-                event::KeyCode::Right => {
-                    if let Some(tab) = self.tabs.get_mut(self.tab_index) {
-                        tab.tab_index = Some(tab.tab_index.map(|i| i + 1).unwrap_or(0));
-                        self.draw(&stdout)?;
-                    }
-                }
-                event::KeyCode::Left => {
-                    if let Some(tab) = self.tabs.get_mut(self.tab_index) {
-                        tab.tab_index =
-                            Some(tab.tab_index.map(|i| i.saturating_sub(1)).unwrap_or(0));
-                        self.draw(&stdout)?;
-                    }
-                }
-                event::KeyCode::PageDown => {
-                    let (_, screen_height) = terminal::size()?;
-                    if let Some(tab) = self.tabs.get_mut(self.tab_index) {
-                        tab.scroll_y += screen_height;
-                        self.draw(&stdout)?;
-                    }
-                }
-                event::KeyCode::PageUp => {
-                    let (_, screen_height) = terminal::size()?;
-                    if let Some(tab) = self.tabs.get_mut(self.tab_index) {
-                        tab.scroll_y = tab.scroll_y.saturating_sub(screen_height);
-                        self.draw(&stdout)?;
-                    }
-                }
-                event::KeyCode::Char(char) => {
-                    let control = key.modifiers.contains(event::KeyModifiers::CONTROL);
-                    if char == 'r' {
-                        self.draw(&stdout)?;
-                    } else if char == 'q' {
-                        running = false;
-                    } else if char == 'w' && control {
-                        if self.tab_index < self.tabs.len() {
-                            self.tabs.remove(self.tab_index);
-                            self.draw_topbar(&stdout)?;
-                            self.draw(&stdout)?;
-                        }
-                    } else if char == 'g' {
-                        terminal::disable_raw_mode()?;
-                        execute!(
-                            stdout,
-                            cursor::MoveTo(0, 1),
-                            terminal::Clear(terminal::ClearType::CurrentLine),
-                            cursor::Show
-                        )?;
-                        let mut buf = String::new();
-                        io::stdin().read_line(&mut buf)?;
-                        terminal::enable_raw_mode()?;
-                        if let Ok(url) = Url::from_str(&buf)
-                            && let Some(page) = self.get_url(url).await
-                        {
-                            if !self.tabs.is_empty() {
-                                self.tab_index += 1;
+                                self.draw_topbar(&stdout)?;
+                                self.draw(&stdout)?;
                             }
-                            self.tabs.insert(self.tab_index, page);
                         }
-
-                        queue!(stdout, cursor::Hide)?;
+                    }
+                    event::KeyCode::F(key) if key == 12 => {
+                        if let Some(tab) = self.tabs.get(self.tab_index) {
+                            let debug = tab.debug_info.clone();
+                            let html = DEBUG_PAGE
+                                .replace("{DEBUGINFO}", &sanitize(&format!("{:?}", debug)))
+                                .replace(
+                                    "{PAGE}",
+                                    &sanitize(
+                                        &tab.root
+                                            .as_ref()
+                                            .map(|f| f.print_recursive(0))
+                                            .unwrap_or(String::new()),
+                                    ),
+                                );
+                            if let Some(page) = parse_html(&html) {
+                                self.open_page(page);
+                                self.draw_topbar(&stdout)?;
+                                self.draw(&stdout)?;
+                            }
+                        }
+                    }
+                    event::KeyCode::Tab => {
+                        self.tab_index += 1;
+                        if self.tab_index >= self.tabs.len() {
+                            self.tab_index = 0;
+                        }
                         self.draw_topbar(&stdout)?;
                         self.draw(&stdout)?;
                     }
+                    event::KeyCode::Down => {
+                        if let Some(tab) = self.tabs.get_mut(self.tab_index) {
+                            tab.scroll_y += 1;
+                            self.draw(&stdout)?;
+                        }
+                    }
+                    event::KeyCode::Up => {
+                        if let Some(tab) = self.tabs.get_mut(self.tab_index) {
+                            tab.scroll_y = tab.scroll_y.saturating_sub(1);
+                            self.draw(&stdout)?;
+                        }
+                    }
+                    event::KeyCode::Right => {
+                        if let Some(tab) = self.tabs.get_mut(self.tab_index) {
+                            tab.tab_index = Some(tab.tab_index.map(|i| i + 1).unwrap_or(0));
+                            self.draw(&stdout)?;
+                        }
+                    }
+                    event::KeyCode::Left => {
+                        if let Some(tab) = self.tabs.get_mut(self.tab_index) {
+                            tab.tab_index =
+                                Some(tab.tab_index.map(|i| i.saturating_sub(1)).unwrap_or(0));
+                            self.draw(&stdout)?;
+                        }
+                    }
+                    event::KeyCode::PageDown => {
+                        let (_, screen_height) = terminal::size()?;
+                        if let Some(tab) = self.tabs.get_mut(self.tab_index) {
+                            tab.scroll_y += screen_height;
+                            self.draw(&stdout)?;
+                        }
+                    }
+                    event::KeyCode::PageUp => {
+                        let (_, screen_height) = terminal::size()?;
+                        if let Some(tab) = self.tabs.get_mut(self.tab_index) {
+                            tab.scroll_y = tab.scroll_y.saturating_sub(screen_height);
+                            self.draw(&stdout)?;
+                        }
+                    }
+                    event::KeyCode::Char(char) => {
+                        let control = key.modifiers.contains(event::KeyModifiers::CONTROL);
+                        if char == 'r' {
+                            self.draw(&stdout)?;
+                        } else if char == 'q' {
+                            running = false;
+                        } else if char == 'w' && control {
+                            if self.tab_index < self.tabs.len() {
+                                self.tabs.remove(self.tab_index);
+                                self.draw_topbar(&stdout)?;
+                                self.draw(&stdout)?;
+                            }
+                        } else if char == 'g' {
+                            terminal::disable_raw_mode()?;
+                            execute!(
+                                stdout,
+                                cursor::MoveTo(0, 1),
+                                terminal::Clear(terminal::ClearType::CurrentLine),
+                                cursor::Show
+                            )?;
+                            let mut buf = String::new();
+                            io::stdin().read_line(&mut buf)?;
+                            terminal::enable_raw_mode()?;
+                            queue!(stdout, cursor::Hide)?;
+                            if let Ok(url) = Url::from_str(&buf)
+                                && let Some(page) = self.get_url(url).await
+                            {
+                                self.open_page(page);
+                                self.draw_topbar(&stdout)?;
+                                self.draw(&stdout)?;
+                            }
+                        }
+                    }
+                    _ => {}
                 }
-                _ => {}
+            }
+            // update fetch queue
+
+            let mut death_queue = Vec::new();
+            for (index, (url, handle)) in self.fetches.iter_mut().enumerate() {
+                if handle.is_finished() {
+                    let Ok(polled) = tokio::join!(handle).0 else {
+                        continue;
+                    };
+                    death_queue.push(index);
+                    let Some(data) = polled else {
+                        continue;
+                    };
+                    self.fetched_assets.insert(url.clone(), data);
+                }
+            }
+            let mut index = 0;
+            self.fetches.retain(|_| {
+                let old = index;
+                index += 1;
+                !death_queue.contains(&old)
+            });
+            // if any finished loading
+            if !death_queue.is_empty() {
+                self.draw_topbar(&stdout)?;
+                self.draw(&stdout)?;
             }
         }
         terminal::disable_raw_mode()?;
@@ -549,6 +626,56 @@ impl Toad {
                         actual_cursor_y = y + h;
                     }
                 }
+                DrawCall::Image(x, y, w, h, source) => {
+                    let Ok(url) = Url::options().base_url(tab.url.as_ref()).parse(&source) else {
+                        continue;
+                    };
+                    let Some(DataEntry::Image(image)) = self.fetched_assets.get(&url) else {
+                        continue;
+                    };
+                    let w = actualize_actual(w, &global_ctx.unknown_sized_elements);
+                    let h = actualize_actual(h, &global_ctx.unknown_sized_elements);
+                    let x = x / EM + start_x;
+                    let mut y = y / LH + start_y;
+                    let w = w / EM;
+                    let mut h = h / LH;
+                    let image = image.resize_exact(
+                        w as u32,
+                        h as u32 * 2,
+                        image::imageops::FilterType::Nearest,
+                    );
+
+                    let bottom_out = y - start_y < tab.scroll_y;
+                    let mut image_row_offset = 0;
+
+                    if bottom_out && y + h - start_y < tab.scroll_y {
+                        continue;
+                    } else if bottom_out {
+                        let o = y;
+                        y = start_y + tab.scroll_y;
+                        h -= y - o;
+                        image_row_offset += (y - o) * 2;
+                    } else if y - tab.scroll_y > (screen_height + start_y) {
+                        continue;
+                    } else if y + h - tab.scroll_y > (screen_height + start_y) {
+                        h = (screen_height + start_y) + tab.scroll_y - y;
+                    }
+
+                    let y = y.saturating_sub(tab.scroll_y);
+                    for i in (0..h as u32 * 2).step_by(2) {
+                        queue!(stdout, cursor::MoveTo(x, y + i as u16 / 2))?;
+                        hamis::draw_row(
+                            &mut stdout,
+                            &image,
+                            i + image_row_offset as u32,
+                            1,
+                            Some(DEFAULT_BACKGROUND_COLOR),
+                        )?;
+
+                        actual_cursor_x = x + w;
+                        actual_cursor_y = y + h;
+                    }
+                }
                 DrawCall::Text(x, y, text, mut ctx, parent_width, parent_interactable) => {
                     if let Some(interactable) = parent_interactable {
                         if let Some(tab_amt) = tab.tab_index
@@ -640,10 +767,9 @@ impl Toad {
 
 #[tokio::main]
 async fn main() -> io::Result<()> {
-    let mut toad = Toad::new(vec![
-        parse_html(include_str!("home.html")).unwrap(),
-        parse_html(include_str!("test.html")).unwrap(),
-    ])
-    .unwrap();
+    let mut toad = Toad::new().unwrap();
+    toad.open_page(parse_html(include_str!("home.html")).unwrap());
+    toad.open_page(parse_html(include_str!("test.html")).unwrap());
+    toad.tab_index = 0;
     toad.run().await
 }

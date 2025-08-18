@@ -206,6 +206,12 @@ pub static ELEMENT_TYPES: &[ElementType] = &[
     ElementType {
         name: "img",
         void_element: true,
+        draw_ctx: ElementDrawContext {
+            width: Specified(Measurement::Pixels(25 * EM)),
+            height: Specified(Measurement::Pixels(10 * LH)),
+            display: Specified(Display::Block),
+            ..DEFAULT_DRAW_CTX
+        },
         ..DEFAULT_ELEMENT_TYPE
     },
     ElementType {
@@ -590,6 +596,35 @@ impl Element {
             &mut global_ctx.unknown_sized_elements,
             false,
         );
+
+        if self.ty.name == "img" {
+            if let Some(source) = self.get_attribute("src")
+                && !matches!(actual_width, ActualMeasurement::Waiting(_))
+                && !matches!(actual_height, ActualMeasurement::Waiting(_))
+            {
+                if actual_width.get_pixels_lossy() > 0 && actual_height.get_pixels_lossy() > 0 {
+                    draw_data.draw_calls.push(DrawCall::Image(
+                        draw_data.x,
+                        draw_data.y,
+                        actual_width,
+                        actual_height,
+                        source.clone(),
+                    ));
+                    draw_data.content_width =
+                        draw_data.content_width.max(actual_width.get_pixels_lossy());
+                    draw_data.content_height = draw_data
+                        .content_height
+                        .max(actual_height.get_pixels_lossy());
+                }
+            }
+            draw_data.x += actual_width.get_pixels_lossy();
+            if is_display_block {
+                draw_data.y += actual_height.get_pixels_lossy();
+                draw_data.x = 0;
+            }
+            return Ok(());
+        }
+
         draw_data.content_width = draw_data.content_width.max(actual_width.get_pixels_lossy());
         draw_data.content_height = draw_data
             .content_height
@@ -621,6 +656,10 @@ impl Element {
         for draw_call in child_data.draw_calls.iter_mut() {
             match draw_call {
                 DrawCall::Rect(x, y, _, _, _) => {
+                    *x += draw_data.x;
+                    *y += draw_data.y;
+                }
+                DrawCall::Image(x, y, _, _, _) => {
                     *x += draw_data.x;
                     *y += draw_data.y;
                 }

@@ -3,7 +3,7 @@ use std::{collections::HashMap, sync::LazyLock};
 use regex::{Captures, Regex};
 
 use crate::{
-    Webpage, WebpageDebugInfo,
+    DataType, Webpage, WebpageDebugInfo,
     css::parse_stylesheet,
     element::{self, DEFAULT_ELEMENT_TYPE, Element, ElementType, NODE},
     utils::*,
@@ -118,6 +118,12 @@ fn get_element_type(name: &str, debug_info: &mut WebpageDebugInfo) -> &'static E
         &DEFAULT_ELEMENT_TYPE
     })
 }
+fn element_type_to_datatype(ty: &str) -> Option<DataType> {
+    match ty {
+        "img" => Some(DataType::Image),
+        _ => None,
+    }
+}
 
 pub fn parse(buf: &mut Vec<char>, debug_info: &mut WebpageDebugInfo) -> Vec<Element> {
     let mut elements = Vec::new();
@@ -128,6 +134,12 @@ pub fn parse(buf: &mut Vec<char>, debug_info: &mut WebpageDebugInfo) -> Vec<Elem
                 if char == '>' {
                     if let ParseState::InElementType(name, attributes) = state {
                         let mut element = Element::new(get_element_type(name.trim(), debug_info));
+
+                        if let Some(src) = attributes.get("src")
+                            && let Some(ty) = element_type_to_datatype(element.ty.name)
+                        {
+                            debug_info.fetch_queue.push((ty, src.clone()));
+                        }
                         element.set_attributes(attributes);
                         if !element.ty.void_element && !element.ty.stops_parsing {
                             element.children = parse(buf, debug_info);
@@ -144,6 +156,12 @@ pub fn parse(buf: &mut Vec<char>, debug_info: &mut WebpageDebugInfo) -> Vec<Elem
                     buf.pop();
                     if let ParseState::InElementType(name, attributes) = state {
                         let mut element = Element::new(get_element_type(name.trim(), debug_info));
+
+                        if let Some(src) = attributes.get("src")
+                            && let Some(ty) = element_type_to_datatype(element.ty.name)
+                        {
+                            debug_info.fetch_queue.push((ty, src.clone()));
+                        }
                         element.set_attributes(attributes);
                         elements.push(element);
                         state = ParseState::WaitingForElement;

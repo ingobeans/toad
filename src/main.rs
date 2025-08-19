@@ -28,6 +28,7 @@ struct CachedDraw {
 
 #[derive(Default)]
 struct Webpage {
+    indentifier: usize,
     title: Option<String>,
     url: Option<Url>,
     root: Option<Element>,
@@ -292,7 +293,8 @@ struct Toad {
     tab_index: usize,
     client: Client,
     fetched_assets: HashMap<Url, DataEntry>,
-    fetches: Vec<(Url, FetchFuture)>,
+    fetches: Vec<(usize, Url, FetchFuture)>,
+    current_page_id: usize,
 }
 impl Toad {
     fn new() -> Result<Self, reqwest::Error> {
@@ -320,15 +322,16 @@ impl Toad {
             self.tab_index += 1;
         }
         refresh_style(&mut page, &self.fetched_assets);
+        page.indentifier = self.current_page_id;
         for (ty, source) in page.debug_info.fetch_queue.drain(..) {
             let options = Url::options().base_url(page.url.as_ref());
             let Ok(url) = options.parse(&source) else {
                 continue;
             };
             let handle = tokio::spawn(get_data(url.clone(), ty, self.client.clone()));
-            self.fetches.push((url, handle));
+            self.fetches.push((page.indentifier, url, handle));
         }
-
+        self.current_page_id += 1;
         self.tabs.insert(self.tab_index, page);
     }
     async fn run(&mut self) -> io::Result<()> {
@@ -470,6 +473,7 @@ impl Toad {
                                 && let Some(page) = self.get_url(url).await
                             {
                                 self.open_page(page);
+                                self.tab_index = 2;
                                 self.draw_topbar(&stdout)?;
                                 self.draw(&stdout)?;
                             }
@@ -480,8 +484,9 @@ impl Toad {
             }
             // update fetch queue
 
+            let mut any_changed = false;
             let mut death_queue = Vec::new();
-            for (index, (url, handle)) in self.fetches.iter_mut().enumerate() {
+            for (index, (page_id, url, handle)) in self.fetches.iter_mut().enumerate() {
                 if handle.is_finished() {
                     let Ok(polled) = tokio::join!(handle).0 else {
                         continue;
@@ -490,7 +495,15 @@ impl Toad {
                     let Some(data) = polled else {
                         continue;
                     };
+
                     self.fetched_assets.insert(url.clone(), data);
+
+                    // refresh page with this page_id
+                    if let Some(page) = self.tabs.iter_mut().find(|f| f.indentifier == *page_id) {
+                        refresh_style(page, &self.fetched_assets);
+                        page.cached_draw = None;
+                        any_changed = true;
+                    }
                 }
             }
             let mut index = 0;
@@ -500,11 +513,7 @@ impl Toad {
                 !death_queue.contains(&old)
             });
             // if any finished loading
-            if !death_queue.is_empty() {
-                if let Some(page) = self.tabs.get_mut(self.tab_index) {
-                    refresh_style(page, &self.fetched_assets);
-                    page.cached_draw = None;
-                }
+            if any_changed {
                 self.draw_topbar(&stdout)?;
                 self.draw(&stdout)?;
             }

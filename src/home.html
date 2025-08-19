@@ -7,6 +7,10 @@
 
 <body>
     <style>
+        body {
+            background-color: rgb(212, 212, 212);
+        }
+
         h1 {
             text-align: center;
         }
@@ -15,25 +19,24 @@
             height: 3lh;
         }
 
-        .inlined {
-            display: inline;
-        }
-
-        .green {
-            color: green;
+        .highlighted {
+            color: rgb(0, 255, 0);
         }
     </style>
-    <h1 style="color:black">welcome to TOAD</h1>
-    <br />
-    <p>hello there this is a little test page where you can see the text and the whatever and it like idk stretches
-        or looks cool idk im just writing some text to see what this would look like when it wraps</p>
-    <div style="background-color: green; width: fit-content; display: block; height: fit-content;">
-        <div style="background-color: red; width: 8em; display: block; "></div>
-        <p style="background-color: blue; width: fit-content; height: 2lh; display: block;">here are some inline texts:
-        </p>
-        <p class="inlined green">green!!!</p>
-        <p class="inlined" style="color: rgb(255,198,2);">yellow!!!</p>
-        <p class="inlined" style="color: #ff00ff;">purple!!!</p>
+    <div style="width: 600px; background-color: rgb(243, 250, 255); height: fit-content;">
+        <h1 style="color:black">welcome to TOAD</h1>
+        <br />
+        <p>the browser of your <span class="highlighted">dreams</span></p><br>
+        <p>try pressing: </p>
+        <ul>
+            <li><span class="highlighted">Tab </span> - to cycle through your tabs</li>
+            <li><span class="highlighted">G </span> - to go to a url</li>
+            <li><span class="highlighted">Up / Down </span> - to scroll up and down (also PgUp and PgDown)</li>
+            <li><span class="highlighted">Enter </span> - to go to selected link</li>
+            <li><span class="highlighted">Left / Right </span> - to move link selection</li>
+            <li><span class="highlighted">Ctrl + W </span> - to close a tab </li>
+            <li><span class="highlighted">Q </span> - to exit</li>
+        </ul>
     </div>
 </body>
 

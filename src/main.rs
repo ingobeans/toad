@@ -12,6 +12,7 @@ use tokio::task::JoinHandle;
 use consts::*;
 use element::*;
 use parsing::*;
+use utils::*;
 
 mod consts;
 mod css;
@@ -331,6 +332,7 @@ impl Toad {
         self.tabs.insert(self.tab_index, page);
     }
     async fn run(&mut self) -> io::Result<()> {
+        add_panic_handler();
         let mut running = true;
         let mut stdout = stdout();
         terminal::enable_raw_mode()?;

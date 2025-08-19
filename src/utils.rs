@@ -1,3 +1,7 @@
+use std::io::stdout;
+
+use crossterm::{cursor, execute, terminal};
+
 pub fn pop_until<T: PartialEq>(a: &mut Vec<T>, b: &T) -> Vec<T> {
     let mut popped = Vec::new();
     while let Some(item) = a.pop() {
@@ -34,10 +38,24 @@ pub fn pop_until_all<T: PartialEq>(a: &mut Vec<T>, b: &[T]) -> Vec<T> {
     }
     popped
 }
-
 pub fn next_is<T: PartialEq>(a: &[T], b: &T) -> bool {
     let Some(item) = a.last() else {
         return false;
     };
     item == b
+}
+pub fn add_panic_handler() {
+    std::panic::set_hook(Box::new(|f| {
+        terminal::disable_raw_mode().unwrap();
+        execute!(stdout(), cursor::Show).unwrap();
+        let mut p = String::new();
+        if let Some(a) = f.payload().downcast_ref::<&str>() {
+            p = a.to_string();
+        }
+        if let Some(a) = f.payload().downcast_ref::<String>() {
+            p = a.to_string();
+        }
+        let a = format!("TOAD panicked at: {:?}\n\nError: {:?}", f.location(), p);
+        std::fs::write("error.txt", a).unwrap();
+    }));
 }

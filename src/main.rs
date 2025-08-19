@@ -473,7 +473,6 @@ impl Toad {
                                 && let Some(page) = self.get_url(url).await
                             {
                                 self.open_page(page);
-                                self.tab_index = 2;
                                 self.draw_topbar(&stdout)?;
                                 self.draw(&stdout)?;
                             }

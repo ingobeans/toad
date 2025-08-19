@@ -19,6 +19,12 @@ mod element;
 mod parsing;
 mod utils;
 
+#[derive(Clone)]
+struct CachedDraw {
+    calls: Vec<DrawCall>,
+    unknown_sized_elements: Vec<Option<ActualMeasurement>>,
+}
+
 #[derive(Default)]
 struct Webpage {
     title: Option<String>,
@@ -31,6 +37,7 @@ struct Webpage {
     /// Each draw, update this with whatever interactable element the tab_index points to
     hovered_interactable: Option<InteractableElement>,
     debug_info: WebpageDebugInfo,
+    cached_draw: Option<CachedDraw>,
 }
 #[derive(Clone, Copy, PartialEq)]
 enum TextAlignment {
@@ -250,8 +257,11 @@ enum DataEntry {
     PlainText(String),
     Image(image::DynamicImage),
 }
+// allow dead code because i sometimes want to use the info_log function for debugging
+#[allow(dead_code)]
 #[derive(Default, Clone, Debug)]
 struct WebpageDebugInfo {
+    info_log: Vec<String>,
     unknown_elements: Vec<String>,
     fetch_queue: Vec<(DataType, String)>,
 }
@@ -351,8 +361,7 @@ impl Toad {
                                     continue;
                                 };
                                 if let Some(page) = self.get_url(url).await {
-                                    self.tab_index += 1;
-                                    self.tabs.insert(self.tab_index, page);
+                                    self.open_page(page);
                                 }
 
                                 self.draw_topbar(&stdout)?;
@@ -363,17 +372,15 @@ impl Toad {
                     event::KeyCode::F(12) => {
                         if let Some(tab) = self.tabs.get(self.tab_index) {
                             let debug = tab.debug_info.clone();
+                            let page_text = sanitize(
+                                &tab.root
+                                    .as_ref()
+                                    .map(|f| f.print_recursive(0))
+                                    .unwrap_or(String::new()),
+                            );
                             let html = DEBUG_PAGE
                                 .replace("{DEBUGINFO}", &sanitize(&format!("{:?}", debug)))
-                                .replace(
-                                    "{PAGE}",
-                                    &sanitize(
-                                        &tab.root
-                                            .as_ref()
-                                            .map(|f| f.print_recursive(0))
-                                            .unwrap_or(String::new()),
-                                    ),
-                                );
+                                .replace("{PAGE}", &page_text);
                             if let Some(page) = parse_html(&html) {
                                 self.open_page(page);
                                 self.draw_topbar(&stdout)?;
@@ -431,6 +438,10 @@ impl Toad {
                     event::KeyCode::Char(char) => {
                         let control = key.modifiers.contains(event::KeyModifiers::CONTROL);
                         if char == 'r' {
+                            if let Some(page) = self.tabs.get_mut(self.tab_index) {
+                                refresh_style(page, &self.fetched_assets);
+                                page.cached_draw = None;
+                            }
                             self.draw(&stdout)?;
                         } else if char == 'q' {
                             running = false;
@@ -489,7 +500,8 @@ impl Toad {
             // if any finished loading
             if !death_queue.is_empty() {
                 if let Some(page) = self.tabs.get_mut(self.tab_index) {
-                    refresh_style(page, &self.fetched_assets)
+                    refresh_style(page, &self.fetched_assets);
+                    page.cached_draw = None;
                 }
                 self.draw_topbar(&stdout)?;
                 self.draw(&stdout)?;
@@ -544,30 +556,41 @@ impl Toad {
         let start_y = 2;
         let (screen_width, screen_height) = terminal::size()?;
         let screen_height = screen_height - start_y;
-        let mut global_ctx = GlobalDrawContext {
-            unknown_sized_elements: Vec::new(),
-            global_style: &tab.global_style,
-            interactable_index: 0,
-        };
-        let mut draw_data = DrawData {
-            parent_width: ActualMeasurement::Pixels(screen_width * EM),
-            parent_height: ActualMeasurement::Pixels(screen_height * LH),
-            ..Default::default()
-        };
         queue!(
             stdout,
             cursor::MoveTo(start_x, start_y),
             terminal::Clear(terminal::ClearType::FromCursorDown)
         )?;
-        tab.root
-            .as_ref()
-            .unwrap()
-            .draw(DEFAULT_DRAW_CTX, &mut global_ctx, &mut draw_data)?;
 
-        // sort draw calls such that rect calls are drawn first
-        draw_data.draw_calls.sort_by_key(|a| a.order());
-        // reverse because vecs are LIFO
-        draw_data.draw_calls.reverse();
+        let mut draws = if let Some(calls) = &tab.cached_draw {
+            calls.clone()
+        } else {
+            let mut global_ctx = GlobalDrawContext {
+                unknown_sized_elements: Vec::new(),
+                global_style: &tab.global_style,
+                interactable_index: 0,
+            };
+            let mut draw_data = DrawData {
+                parent_width: ActualMeasurement::Pixels(screen_width * EM),
+                parent_height: ActualMeasurement::Pixels(screen_height * LH),
+                ..Default::default()
+            };
+            tab.root
+                .as_ref()
+                .unwrap()
+                .draw(DEFAULT_DRAW_CTX, &mut global_ctx, &mut draw_data)?;
+
+            // sort draw calls such that rect calls are drawn first
+            draw_data.draw_calls.sort_by_key(|a| a.order());
+            // reverse because vecs are LIFO
+            draw_data.draw_calls.reverse();
+            let draws = CachedDraw {
+                calls: draw_data.draw_calls,
+                unknown_sized_elements: global_ctx.unknown_sized_elements,
+            };
+            tab.cached_draw = Some(draws.clone());
+            draws
+        };
         let mut last = DEFAULT_DRAW_CTX;
         let mut rects: Vec<(u16, u16, u16, u16, style::Color)> = Vec::new();
         let mut actual_cursor_x = 0;
@@ -584,18 +607,27 @@ impl Toad {
                         as f32
                         * p) as u16
                 }
-                ActualMeasurement::Waiting(_) => 0,
+                ActualMeasurement::Waiting(i) => {
+                    if let ActualMeasurement::Pixels(p) = unknown_sized_elements[i].unwrap() {
+                        p
+                    } else {
+                        panic!("Unresolved ActualMeasurement::Waiting")
+                    }
+                }
             }
         }
         tab.hovered_interactable = None;
-        while let Some(call) = draw_data.draw_calls.pop() {
+        //if !tab.title.as_ref().is_some_and(|f| f.contains("info")) {
+        //    return Ok(());
+        //}
+        while let Some(call) = draws.calls.pop() {
             match call {
                 DrawCall::Rect(x, y, w, h, color) => {
                     let x = x / EM + start_x;
                     let mut y = y / LH + start_y;
 
-                    let w = actualize_actual(w, &global_ctx.unknown_sized_elements);
-                    let h = actualize_actual(h, &global_ctx.unknown_sized_elements);
+                    let w = actualize_actual(w, &draws.unknown_sized_elements);
+                    let h = actualize_actual(h, &draws.unknown_sized_elements);
                     let w = w / EM;
                     let mut h = h / LH;
                     if x == start_x
@@ -649,8 +681,8 @@ impl Toad {
                     let Some(DataEntry::Image(image)) = self.fetched_assets.get(&url) else {
                         continue;
                     };
-                    let w = actualize_actual(w, &global_ctx.unknown_sized_elements);
-                    let h = actualize_actual(h, &global_ctx.unknown_sized_elements);
+                    let w = actualize_actual(w, &draws.unknown_sized_elements);
+                    let h = actualize_actual(h, &draws.unknown_sized_elements);
                     let x = x / EM + start_x;
                     let mut y = y / LH + start_y;
                     let w = w / EM;
@@ -701,8 +733,7 @@ impl Toad {
                         ctx.background_color = Specified(style::Color::Blue);
                     }
                     apply_draw_ctx(ctx, &mut last, &mut stdout.lock())?;
-                    let width =
-                        actualize_actual(parent_width, &global_ctx.unknown_sized_elements) / EM;
+                    let width = actualize_actual(parent_width, &draws.unknown_sized_elements) / EM;
                     for (index, line) in text.lines().enumerate() {
                         let text_len = line.len() as u16;
                         let x = x / EM + start_x;

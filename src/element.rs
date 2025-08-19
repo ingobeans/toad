@@ -567,9 +567,11 @@ impl Element {
                     draw_data.parent_interactable.clone(),
                 ));
                 draw_data.content_width = draw_data.content_width.max(width * EM);
-                draw_data.content_height = draw_data.content_height.max(final_y * LH + LH);
+                draw_data.content_height = draw_data
+                    .content_height
+                    .max(final_y.saturating_mul(LH).saturating_add(LH));
                 draw_data.x = final_x * EM;
-                draw_data.y += final_y * EM;
+                draw_data.y = draw_data.y.saturating_add(final_y.saturating_mul(LH));
             }
             return Ok(());
         } else if self.ty.name == "a"
@@ -598,9 +600,17 @@ impl Element {
         );
 
         if self.ty.name == "img" {
+            // make sure that there **never** exists any unfulfilled Waiting promises.
+            // we have to do this here for images, since they have an early return
+            if let ActualMeasurement::Waiting(wi) = actual_width {
+                actual_width = ActualMeasurement::Pixels(0);
+                global_ctx.unknown_sized_elements[wi] = Some(actual_width);
+            }
+            if let ActualMeasurement::Waiting(hi) = actual_height {
+                actual_height = ActualMeasurement::Pixels(0);
+                global_ctx.unknown_sized_elements[hi] = Some(actual_height);
+            }
             if let Some(source) = self.get_attribute("src")
-                && !matches!(actual_width, ActualMeasurement::Waiting(_))
-                && !matches!(actual_height, ActualMeasurement::Waiting(_))
                 && actual_width.get_pixels_lossy() > 0
                 && actual_height.get_pixels_lossy() > 0
             {
@@ -619,8 +629,11 @@ impl Element {
             }
 
             draw_data.x += actual_width.get_pixels_lossy();
-            if is_display_block {
-                draw_data.y += actual_height.get_pixels_lossy();
+            if is_display_block
+                && let Some(h) = actual_height.get_pixels()
+                && h > 0
+            {
+                draw_data.y += h;
                 draw_data.x = 0;
             }
             return Ok(());
@@ -652,7 +665,7 @@ impl Element {
                 .max(draw_data.x + child_data.content_width);
             draw_data.content_height = draw_data
                 .content_height
-                .max(draw_data.y + child_data.content_height);
+                .max(draw_data.y.saturating_add(child_data.content_height));
         }
         for draw_call in child_data.draw_calls.iter_mut() {
             match draw_call {
@@ -706,7 +719,7 @@ impl Element {
         draw_data.content_height = draw_data.content_height.max(height);
         draw_data.x += width;
         if is_display_block {
-            draw_data.y += height;
+            draw_data.y = draw_data.y.saturating_add(height);
             draw_data.x = 0;
         }
 

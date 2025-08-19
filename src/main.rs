@@ -24,6 +24,7 @@ mod utils;
 struct CachedDraw {
     calls: Vec<DrawCall>,
     unknown_sized_elements: Vec<Option<ActualMeasurement>>,
+    content_height: u16,
 }
 
 #[derive(Default)]
@@ -565,6 +566,7 @@ impl Toad {
         let start_x = 0;
         let start_y = 2;
         let (screen_width, screen_height) = terminal::size()?;
+        let screen_width = screen_width - 1;
         let screen_height = screen_height - start_y;
         queue!(
             stdout,
@@ -597,6 +599,7 @@ impl Toad {
             let draws = CachedDraw {
                 calls: draw_data.draw_calls,
                 unknown_sized_elements: global_ctx.unknown_sized_elements,
+                content_height: draw_data.content_height,
             };
             tab.cached_draw = Some(draws.clone());
             draws
@@ -627,9 +630,7 @@ impl Toad {
             }
         }
         tab.hovered_interactable = None;
-        //if !tab.title.as_ref().is_some_and(|f| f.contains("info")) {
-        //    return Ok(());
-        //}
+
         while let Some(call) = draws.calls.pop() {
             match call {
                 DrawCall::Rect(x, y, w, h, color) => {
@@ -817,6 +818,19 @@ impl Toad {
             }
         }
 
+        if draws.content_height / LH > screen_height {
+            // draw scrollbar
+            let scroll_amt = ((tab.scroll_y * LH) as f32
+                / (draws.content_height - screen_height) as f32)
+                .min(1.0)
+                * screen_height as f32;
+            queue!(
+                stdout,
+                cursor::MoveTo(screen_width - 1, start_y + scroll_amt as u16),
+                style::SetForegroundColor(style::Color::Black),
+            )?;
+            print!("█");
+        }
         queue!(stdout, style::ResetColor)
     }
 }

@@ -448,6 +448,7 @@ impl Toad {
                                 refresh_style(page, &self.fetched_assets);
                                 page.cached_draw = None;
                             }
+                            self.draw_topbar(&stdout)?;
                             self.draw(&stdout)?;
                         } else if char == 'q' {
                             running = false;

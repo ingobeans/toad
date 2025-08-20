@@ -42,12 +42,14 @@ struct Webpage {
     debug_info: WebpageDebugInfo,
     cached_draw: Option<CachedDraw>,
 }
+
 #[derive(Clone, Copy, PartialEq)]
 enum TextAlignment {
     Left,
     Centre,
     Right,
 }
+
 #[derive(Clone, Copy, PartialEq)]
 enum Display {
     Inline,
@@ -79,6 +81,7 @@ impl Default for ActualMeasurement {
         Self::Waiting(999)
     }
 }
+
 #[derive(Clone, Copy, PartialEq, Debug)]
 enum Measurement {
     FitContentWidth,
@@ -180,6 +183,21 @@ enum StyleTargetType {
     Id(String, Option<String>),
 }
 
+impl StyleTargetType {
+    fn matches_one(&self, info: &ElementTargetInfo) -> bool {
+        match self {
+            StyleTargetType::ElementType(ty) => info.type_name == ty,
+            StyleTargetType::Class(class, ty) => {
+                info.classes.contains(class) && ty.as_ref().is_none_or(|ty| ty == info.type_name)
+            }
+            StyleTargetType::Id(id, ty) => {
+                info.id.as_ref().is_some_and(|i| i == id)
+                    && ty.as_ref().is_none_or(|ty| ty == info.type_name)
+            }
+        }
+    }
+}
+
 #[derive(Clone, Hash, PartialEq, Eq, Debug)]
 struct StyleTarget {
     types: Vec<StyleTargetType>,
@@ -192,21 +210,26 @@ struct ElementTargetInfo {
     classes: Vec<String>,
 }
 impl StyleTarget {
-    fn matches(&self, info: &Vec<ElementTargetInfo>) -> bool {
-        for (ty, element) in self.types.iter().rev().zip(info.iter().rev()) {
-            if !match ty {
-                StyleTargetType::ElementType(ty) => element.type_name == ty,
-                StyleTargetType::Class(class, ty) => {
-                    element.classes.contains(class)
-                        && ty.as_ref().is_none_or(|ty| ty == element.type_name)
+    fn matches(&self, info: &[ElementTargetInfo]) -> bool {
+        let mut info = info.iter().rev();
+        let mut types = self.types.iter().rev();
+
+        // unwrap because this function should never be called without passing at least the element self
+        let first_element = info.next().unwrap();
+        let Some(first_type) = types.next() else {
+            return false;
+        };
+        if !first_type.matches_one(first_element) {
+            return false;
+        }
+
+        'outer: for ty in types {
+            for element in info.by_ref() {
+                if ty.matches_one(element) {
+                    continue 'outer;
                 }
-                StyleTargetType::Id(id, ty) => {
-                    element.id.as_ref().is_some_and(|i| i == id)
-                        && ty.as_ref().is_none_or(|ty| ty == element.type_name)
-                }
-            } {
-                return false;
             }
+            return false;
         }
         true
     }
@@ -288,11 +311,24 @@ enum DataEntry {
 }
 // allow dead code because i sometimes want to use the info_log function for debugging
 #[allow(dead_code)]
-#[derive(Default, Clone, Debug)]
+#[derive(Default, Clone)]
 struct WebpageDebugInfo {
     info_log: Vec<String>,
     unknown_elements: Vec<String>,
     fetch_queue: Vec<(DataType, String)>,
+}
+impl Debug for WebpageDebugInfo {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut log = String::new();
+        for item in self.info_log.iter() {
+            log += &format!("-{:?}\n", item);
+        }
+        write!(
+            f,
+            "Info Log: \n\n{log}\n\nUnknown elements: {:?}",
+            self.unknown_elements
+        )
+    }
 }
 
 const DEBUG_PAGE: &str = include_str!("debug.html");
@@ -410,8 +446,14 @@ impl Toad {
                                     .map(|f| f.print_recursive(0))
                                     .unwrap_or(String::new()),
                             );
+                            let mut s = String::new();
+                            for (item, _) in tab.global_style.iter() {
+                                s += &format!("{:?}", item);
+                                s += "\n\n"
+                            }
                             let html = DEBUG_PAGE
                                 .replace("{DEBUGINFO}", &sanitize(&format!("{:?}", debug)))
+                                .replace("{STYLE_TARGETS}", &sanitize(&s))
                                 .replace("{PAGE}", &page_text);
                             if let Some(page) = parse_html(&html) {
                                 self.open_page(page);

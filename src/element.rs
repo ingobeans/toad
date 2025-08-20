@@ -537,7 +537,7 @@ impl Element {
         &self,
         global_ctx: &GlobalDrawContext,
         parent_draw_context: ElementDrawContext,
-        ancestor_target_info: &Vec<ElementTargetInfo>,
+        ancestor_target_info: &[ElementTargetInfo],
     ) -> ElementDrawContext {
         // construct this elements style by overlaying:
         //  - parent style
@@ -550,7 +550,7 @@ impl Element {
         style.merge_inherit(&parent_draw_context);
 
         for (k, v) in global_ctx.global_style.iter() {
-            if k.matches(&ancestor_target_info) {
+            if k.matches(ancestor_target_info) {
                 style.merge_all(v);
             }
         }

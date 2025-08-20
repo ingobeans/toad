@@ -345,10 +345,28 @@ mod tests {
             },
         ];
         assert!(a.matches(&info));
-        // reorder array and try again (should fail)¨
-        let d = info.remove(0);
-        info.push(d);
+        // remove item and try again (should fail)
+        info.pop();
         assert!(!a.matches(&info));
+
+        // test single items
+
+        let b = parse_target("#item").unwrap();
+        let element = [ElementTargetInfo {
+            type_name: "p",
+            id: Some(String::from("item")),
+            classes: vec![],
+        }];
+        assert!(b.matches(&element));
+
+        // should fail
+        let c = parse_target("div").unwrap();
+        let element = [ElementTargetInfo {
+            type_name: "p",
+            id: Some(String::from("item")),
+            classes: vec![],
+        }];
+        assert!(!c.matches(&element));
     }
 
     #[test]

@@ -130,9 +130,17 @@ fn element_to_datatype(element: &Element) -> Option<(DataType, String)> {
         "img" => element
             .get_attribute("src")
             .map(|source| (DataType::Image, parse_special(source))),
-        "link" => element
-            .get_attribute("href")
-            .map(|source| (DataType::PlainText, parse_special(source))),
+        "link" => {
+            if let Some(rel) = element.get_attribute("rel")
+                && rel == "stylesheet"
+            {
+                element
+                    .get_attribute("href")
+                    .map(|source| (DataType::PlainText, parse_special(source)))
+            } else {
+                None
+            }
+        }
         _ => None,
     }
 }

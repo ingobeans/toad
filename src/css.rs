@@ -183,6 +183,11 @@ fn try_apply_rule(ctx: &mut ElementDrawContext, rule: &str) {
                 ctx.display = Specified(display_mode);
             }
         }
+        // make `visibility: hidden` act as `display: none`
+        // this is actually wrong but i think it works well as a hotfix for a lot of websites
+        "visibility" if value == "hidden" => {
+            ctx.display = Specified(Display::None);
+        }
         "width" => {
             if value == "inherit" {
                 ctx.width = Inherit;

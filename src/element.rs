@@ -6,8 +6,8 @@ use std::{
 
 use crate::{
     ActualMeasurement, DEFAULT_DRAW_CTX, Display, DrawCall, ElementDrawContext, GlobalDrawContext,
-    InteractableElement, InteractableType, Measurement, NonInheritedField::*, consts::*, css,
-    parsing::parse_special,
+    InteractableElement, InteractableType, Measurement, NonInheritedField::*, TextPrefix,
+    consts::*, css, parsing::parse_special,
 };
 use crossterm::{queue, style};
 
@@ -84,6 +84,7 @@ static DIV: ElementType = ElementType {
     draw_ctx: ElementDrawContext {
         display: Specified(Display::Block),
         height: Specified(Measurement::FitContentHeight),
+        width: Specified(Measurement::FitContentWidth),
         ..DEFAULT_DRAW_CTX
     },
     ..DEFAULT_ELEMENT_TYPE
@@ -119,6 +120,16 @@ static PRE: ElementType = ElementType {
     },
     ..DEFAULT_ELEMENT_TYPE
 };
+static EM_TAG: ElementType = ElementType {
+    name: "em",
+    draw_ctx: ElementDrawContext {
+        italics: true,
+        width: Specified(Measurement::FitContentWidth),
+        height: Specified(Measurement::FitContentHeight),
+        ..DEFAULT_DRAW_CTX
+    },
+    ..SPAN
+};
 pub static ELEMENT_TYPES: &[ElementType] = &[
     BODY,
     P,
@@ -126,7 +137,12 @@ pub static ELEMENT_TYPES: &[ElementType] = &[
     DIV,
     SPAN,
     B,
+    EM_TAG,
     PRE,
+    ElementType {
+        name: "i",
+        ..EM_TAG
+    },
     ElementType {
         name: "code",
         draw_ctx: ElementDrawContext {
@@ -139,18 +155,16 @@ pub static ELEMENT_TYPES: &[ElementType] = &[
         ..DEFAULT_ELEMENT_TYPE
     },
     ElementType {
-        name: "em",
-        draw_ctx: ElementDrawContext {
-            italics: true,
-            width: Specified(Measurement::FitContentWidth),
-            height: Specified(Measurement::FitContentHeight),
-            ..DEFAULT_DRAW_CTX
-        },
-        ..SPAN
-    },
-    ElementType {
         name: "strong",
         ..B
+    },
+    ElementType {
+        name: "cite",
+        ..EM_TAG
+    },
+    ElementType {
+        name: "blockquote",
+        ..PRE
     },
     ElementType { name: "dl", ..P },
     ElementType { name: "dt", ..P },
@@ -186,13 +200,46 @@ pub static ELEMENT_TYPES: &[ElementType] = &[
     },
     ElementType {
         name: "button",
-        ..DEFAULT_ELEMENT_TYPE
+        ..SPAN
+    },
+    ElementType {
+        name: "figcaption",
+        ..P
+    },
+    ElementType {
+        name: "figure",
+        ..DIV
     },
     ElementType {
         name: "form",
         ..DIV
     },
-    ElementType { name: "ul", ..P },
+    ElementType {
+        name: "sup",
+        ..SPAN
+    },
+    ElementType {
+        name: "ol",
+        draw_ctx: ElementDrawContext {
+            display: Specified(Display::Block),
+            width: Specified(Measurement::FitContentWidth),
+            height: Specified(Measurement::FitContentHeight),
+            text_prefix: Some(TextPrefix::Number),
+            ..DEFAULT_DRAW_CTX
+        },
+        ..DEFAULT_ELEMENT_TYPE
+    },
+    ElementType {
+        name: "ul",
+        draw_ctx: ElementDrawContext {
+            display: Specified(Display::Block),
+            width: Specified(Measurement::FitContentWidth),
+            height: Specified(Measurement::FitContentHeight),
+            text_prefix: Some(TextPrefix::Dot),
+            ..DEFAULT_DRAW_CTX
+        },
+        ..DEFAULT_ELEMENT_TYPE
+    },
     ElementType { name: "li", ..P },
     ElementType {
         name: "html",

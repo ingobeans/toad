@@ -120,6 +120,12 @@ use NonInheritedField::*;
 use crate::css::parse_stylesheet;
 
 #[derive(Clone, Copy, PartialEq)]
+enum TextPrefix {
+    Dot,
+    Number,
+}
+
+#[derive(Clone, Copy, PartialEq)]
 struct ElementDrawContext {
     text_align: Option<TextAlignment>,
     foreground_color: Option<style::Color>,
@@ -130,6 +136,7 @@ struct ElementDrawContext {
     respect_whitespace: bool,
     width: NonInheritedField<Measurement>,
     height: NonInheritedField<Measurement>,
+    text_prefix: Option<TextPrefix>,
 }
 static DEFAULT_DRAW_CTX: ElementDrawContext = ElementDrawContext {
     text_align: None,
@@ -141,12 +148,14 @@ static DEFAULT_DRAW_CTX: ElementDrawContext = ElementDrawContext {
     respect_whitespace: false,
     width: Unset,
     height: Unset,
+    text_prefix: None,
 };
 impl ElementDrawContext {
     /// Merges this context with another, exclusively copying inherited fields
     fn merge_inherit(&mut self, other: &ElementDrawContext) {
         self.text_align = other.text_align.or(self.text_align);
         self.foreground_color = other.foreground_color.or(self.foreground_color);
+        self.text_prefix = other.text_prefix.or(self.text_prefix);
         self.bold |= other.bold;
         self.italics |= other.italics;
         self.respect_whitespace |= other.respect_whitespace;

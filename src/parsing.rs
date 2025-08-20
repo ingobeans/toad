@@ -36,12 +36,15 @@ pub fn get_all_styles(
         && let Some(text) = &element.text
     {
         *buf += text
-    } else if element.ty.name == "link"
-        && let Some(source) = element.get_attribute("href")
-        && let Ok(source) = Url::options().base_url(url).parse(source)
-        && let Some(DataEntry::PlainText(data)) = assets.get(&source)
-    {
-        *buf += data;
+    } else if element.ty.name == "link" {
+        if let Some(source) = element.get_attribute("href")
+            && let Some(rel) = element.get_attribute("rel")
+            && rel == "stylesheet"
+            && let Ok(source) = Url::options().base_url(url).parse(&parse_special(source))
+            && let Some(DataEntry::PlainText(data)) = assets.get(&source)
+        {
+            *buf += data;
+        }
     }
 
     for child in element.children.iter() {

@@ -570,7 +570,6 @@ impl Toad {
                         }
                         continue;
                     };
-
                     self.fetched_assets.insert(url.clone(), data);
 
                     // refresh page with this page_id

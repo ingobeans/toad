@@ -5,9 +5,9 @@ use std::{
 };
 
 use crate::{
-    ActualMeasurement, DEFAULT_DRAW_CTX, Display, DrawCall, ElementDrawContext, GlobalDrawContext,
-    InteractableElement, InteractableType, Measurement, NonInheritedField::*, TextPrefix,
-    consts::*, css, parsing::parse_special,
+    ActualMeasurement, DEFAULT_DRAW_CTX, Display, DrawCall, ElementDrawContext, ElementTargetInfo,
+    GlobalDrawContext, InteractableElement, InteractableType, Measurement, NonInheritedField::*,
+    TextPrefix, consts::*, css, parsing::parse_special,
 };
 use crossterm::{queue, style};
 
@@ -469,6 +469,7 @@ pub struct DrawData {
     pub x: u16,
     pub y: u16,
     pub parent_interactable: Option<InteractableElement>,
+    pub ancestors_target_info: Vec<ElementTargetInfo>,
 }
 pub struct Element {
     pub ty: &'static ElementType,
@@ -536,6 +537,7 @@ impl Element {
         &self,
         global_ctx: &GlobalDrawContext,
         parent_draw_context: ElementDrawContext,
+        ancestor_target_info: &Vec<ElementTargetInfo>,
     ) -> ElementDrawContext {
         // construct this elements style by overlaying:
         //  - parent style
@@ -548,7 +550,7 @@ impl Element {
         style.merge_inherit(&parent_draw_context);
 
         for (k, v) in global_ctx.global_style.iter() {
-            if k.matches(self) {
+            if k.matches(&ancestor_target_info) {
                 style.merge_all(v);
             }
         }
@@ -578,8 +580,14 @@ impl Element {
         global_ctx: &mut GlobalDrawContext,
         draw_data: &mut DrawData,
     ) -> io::Result<()> {
+        let mut draw_data_ancestor_info = draw_data.ancestors_target_info.clone();
+        draw_data_ancestor_info.push(ElementTargetInfo {
+            type_name: self.ty.name,
+            id: self.get_attribute("id").cloned(),
+            classes: self.classes.clone(),
+        });
         // construct this element's active style
-        let style = self.get_active_style(global_ctx, parent_draw_ctx);
+        let style = self.get_active_style(global_ctx, parent_draw_ctx, &draw_data_ancestor_info);
 
         if self.ty.stops_parsing || matches!(style.display, Specified(Display::None)) {
             return Ok(());
@@ -703,6 +711,7 @@ impl Element {
             parent_width: draw_data_parent_width,
             parent_height: actual_height,
             parent_interactable: self_interactable,
+            ancestors_target_info: draw_data_ancestor_info,
             ..Default::default()
         };
         for child in self.children.iter() {

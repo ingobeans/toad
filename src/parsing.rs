@@ -129,10 +129,10 @@ fn element_to_datatype(element: &Element) -> Option<(DataType, String)> {
     match element.ty.name {
         "img" => element
             .get_attribute("src")
-            .map(|source| (DataType::Image, source.clone())),
+            .map(|source| (DataType::Image, parse_special(source))),
         "link" => element
             .get_attribute("href")
-            .map(|source| (DataType::PlainText, source.clone())),
+            .map(|source| (DataType::PlainText, parse_special(source))),
         _ => None,
     }
 }
@@ -268,6 +268,8 @@ mod tests {
     #[test]
     fn test_parsing() {
         let html = "<font color=\"red\">(archived)</font>";
-        println!("{:?}", parse_html(html).map(|f| f.root));
+        assert!(parse_html(html).is_some_and(|f| f.root.is_some_and(
+            |f| f.ty.name == "font" && f.get_attribute("color").is_some_and(|f| f == "red")
+        )));
     }
 }

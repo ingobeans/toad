@@ -171,7 +171,7 @@ impl ElementDrawContext {
 }
 
 #[derive(Clone, Hash, PartialEq, Eq, Debug)]
-enum StyleTarget {
+enum StyleTargetType {
     /// Target by element type (Name)
     ElementType(String),
     /// Target by element class (Class name, Optional element type requirement)
@@ -179,19 +179,36 @@ enum StyleTarget {
     /// Target by element id (Id, Optional element type requirement)
     Id(String, Option<String>),
 }
+
+#[derive(Clone, Hash, PartialEq, Eq, Debug)]
+struct StyleTarget {
+    types: Vec<StyleTargetType>,
+}
+
+#[derive(Clone)]
+struct ElementTargetInfo {
+    type_name: &'static str,
+    id: Option<String>,
+    classes: Vec<String>,
+}
 impl StyleTarget {
-    fn matches(&self, element: &Element) -> bool {
-        match self {
-            StyleTarget::ElementType(ty) => element.ty.name == ty,
-            StyleTarget::Class(class, ty) => {
-                element.classes.contains(class)
-                    && ty.as_ref().is_none_or(|ty| ty == element.ty.name)
-            }
-            StyleTarget::Id(id, ty) => {
-                element.get_attribute("id").is_some_and(|i| i == id)
-                    && ty.as_ref().is_none_or(|ty| ty == element.ty.name)
+    fn matches(&self, info: &Vec<ElementTargetInfo>) -> bool {
+        for (ty, element) in self.types.iter().rev().zip(info.iter().rev()) {
+            if !match ty {
+                StyleTargetType::ElementType(ty) => element.type_name == ty,
+                StyleTargetType::Class(class, ty) => {
+                    element.classes.contains(class)
+                        && ty.as_ref().is_none_or(|ty| ty == element.type_name)
+                }
+                StyleTargetType::Id(id, ty) => {
+                    element.id.as_ref().is_some_and(|i| i == id)
+                        && ty.as_ref().is_none_or(|ty| ty == element.type_name)
+                }
+            } {
+                return false;
             }
         }
+        true
     }
 }
 
@@ -503,6 +520,12 @@ impl Toad {
                     };
                     death_queue.push(index);
                     let Some(data) = polled else {
+                        if let Some(page) = self.tabs.iter_mut().find(|f| f.indentifier == *page_id)
+                        {
+                            page.debug_info
+                                .info_log
+                                .push(format!("Failed to get data of {url}"));
+                        }
                         continue;
                     };
 

@@ -2,7 +2,7 @@ use crossterm::style;
 
 use crate::{
     DEFAULT_DRAW_CTX, Display, ElementDrawContext, Measurement, NonInheritedField::*, StyleTarget,
-    TextAlignment, consts::*, utils::*,
+    StyleTargetType, TextAlignment, consts::*, utils::*,
 };
 
 fn hex_to_rgb(value: u32) -> style::Color {
@@ -188,27 +188,48 @@ pub fn parse_ruleset(text: &str, ctx: &mut ElementDrawContext) {
     }
 }
 
-fn pop_until_outside(text: &mut Vec<char>) {
+/// Pops chars from the buf until it has exited all selectors, i.e. when the amount of opened curly braces - the amount of closed curly braces == 0.
+///
+/// Returns what string came before the first curly bracket, and the rest of the content.
+fn pop_exit_media_selector(text: &mut Vec<char>) -> (String, String) {
+    let mut selector = String::new();
+    let mut content = String::new();
+    let mut in_start = true;
     let mut count = 0;
     while let Some(popped) = text.pop() {
         match popped {
-            '{' => count += 1,
+            '{' => {
+                if in_start {
+                    in_start = false;
+                } else {
+                    content.push(popped);
+                }
+                count += 1
+            }
             '}' => {
                 count -= 1;
                 if count == 0 {
-                    return;
+                    break;
+                }
+                content.push(popped);
+            }
+            _ => {
+                if in_start {
+                    selector.push(popped);
+                } else {
+                    content.push(popped);
                 }
             }
-            _ => {}
         }
     }
+    (selector, content)
 }
-fn parse_target(specifier: &str, type_requirement: Option<String>) -> Option<StyleTarget> {
+fn parse_target_type(specifier: &str, type_requirement: Option<String>) -> Option<StyleTargetType> {
     let char = specifier.chars().next()?;
-    let target: StyleTarget = if char == '#' {
-        StyleTarget::Id(specifier[1..].to_string(), type_requirement)
+    let target: StyleTargetType = if char == '#' {
+        StyleTargetType::Id(specifier[1..].to_string(), type_requirement)
     } else if char == '.' {
-        StyleTarget::Class(specifier[1..].to_string(), type_requirement)
+        StyleTargetType::Class(specifier[1..].to_string(), type_requirement)
     } else if specifier.contains(".") || specifier.contains("#") {
         let ty: &str;
         let new: String;
@@ -221,11 +242,27 @@ fn parse_target(specifier: &str, type_requirement: Option<String>) -> Option<Sty
             (ty, s) = specifier.split_once("#")?;
             new = format!("#{s}");
         }
-        parse_target(&new, Some(ty.to_string()))?
+        parse_target_type(&new, Some(ty.to_string()))?
     } else {
-        StyleTarget::ElementType(specifier.to_string())
+        StyleTargetType::ElementType(specifier.to_string())
     };
     Some(target)
+}
+fn parse_target(specifier: &str) -> Option<StyleTarget> {
+    let mut types = Vec::new();
+    for item in specifier.split(" ") {
+        if item.is_empty() {
+            continue;
+        }
+        if let Some(target_type) = parse_target_type(item, None) {
+            types.push(target_type);
+        }
+    }
+    if types.is_empty() {
+        None
+    } else {
+        Some(StyleTarget { types })
+    }
 }
 pub fn parse_stylesheet(text: &str, style: &mut Vec<(StyleTarget, ElementDrawContext)>) {
     let mut chars: Vec<char> = text.chars().collect();
@@ -235,7 +272,11 @@ pub fn parse_stylesheet(text: &str, style: &mut Vec<(StyleTarget, ElementDrawCon
             continue;
         }
         if char == '@' {
-            pop_until_outside(&mut chars);
+            let (media_selector, rule_contents) = pop_exit_media_selector(&mut chars);
+            // also parse the content of the media selector thingy
+            if media_selector.trim() == "media screen" {
+                parse_stylesheet(&rule_contents, style);
+            }
             continue;
         }
 
@@ -247,7 +288,7 @@ pub fn parse_stylesheet(text: &str, style: &mut Vec<(StyleTarget, ElementDrawCon
 
         for specifier in specifiers.split(",") {
             let specifier = specifier.trim();
-            let Some(target) = parse_target(specifier, None) else {
+            let Some(target) = parse_target(specifier) else {
                 continue;
             };
             style.push((target, ctx));
@@ -257,40 +298,94 @@ pub fn parse_stylesheet(text: &str, style: &mut Vec<(StyleTarget, ElementDrawCon
 
 #[cfg(test)]
 mod tests {
-    use crate::css::{StyleTarget, parse_target, pop_until_outside};
-
+    use crate::{
+        ElementTargetInfo, StyleTargetType,
+        css::{parse_target, parse_target_type, pop_exit_media_selector},
+    };
     #[test]
     fn test_parse_target() {
+        let a = parse_target("div #div h1.div p").unwrap();
+        let expected = vec![
+            StyleTargetType::ElementType(String::from("div")),
+            StyleTargetType::Id(String::from("div"), None),
+            StyleTargetType::Class(String::from("div"), Some(String::from("h1"))),
+            StyleTargetType::ElementType(String::from("p")),
+        ];
+        for (item, expected) in a.types.iter().zip(expected.iter()) {
+            assert_eq!(item, expected)
+        }
+        // try matching them
+        let mut info = vec![
+            // an initial extra item that shouldnt affect anything, it should look at ancestors from recent to old
+            ElementTargetInfo {
+                type_name: "initial extra whatever",
+                id: None,
+                classes: vec![],
+            },
+            // all following elements replicate the expected structure of test target
+            ElementTargetInfo {
+                type_name: "div",
+                id: None,
+                classes: vec![],
+            },
+            ElementTargetInfo {
+                type_name: "whatver",
+                id: Some(String::from("div")),
+                classes: vec![],
+            },
+            ElementTargetInfo {
+                type_name: "h1",
+                id: None,
+                classes: vec![String::from("div")],
+            },
+            ElementTargetInfo {
+                type_name: "p",
+                id: None,
+                classes: vec![],
+            },
+        ];
+        assert!(a.matches(&info));
+        // reorder array and try again (should fail)¨
+        let d = info.remove(0);
+        info.push(d);
+        assert!(!a.matches(&info));
+    }
+
+    #[test]
+    fn test_parse_target_type() {
         assert_eq!(
-            parse_target("div#wa", None),
-            Some(StyleTarget::Id("wa".to_string(), Some("div".to_string())))
+            parse_target_type("div#wa", None),
+            Some(StyleTargetType::Id(
+                "wa".to_string(),
+                Some("div".to_string())
+            ))
         );
         assert_eq!(
-            parse_target("#wa", None),
-            Some(StyleTarget::Id("wa".to_string(), None))
+            parse_target_type("#wa", None),
+            Some(StyleTargetType::Id("wa".to_string(), None))
         );
         assert_eq!(
-            parse_target(".wa", None),
-            Some(StyleTarget::Class("wa".to_string(), None))
+            parse_target_type(".wa", None),
+            Some(StyleTargetType::Class("wa".to_string(), None))
         );
         assert_eq!(
-            parse_target("h1", None),
-            Some(StyleTarget::ElementType("h1".to_string()))
+            parse_target_type("h1", None),
+            Some(StyleTargetType::ElementType("h1".to_string()))
         );
     }
 
     #[test]
     fn test_pop_until_outside() {
-        let mut chars: Vec<char> = "@wahoo { h { rgr grg} wello {w aw a wa} }hello {wa}"
+        let mut chars: Vec<char> = "wahoo { h { rgr grg} wello {w aw a wa} }hello {wa}"
             .chars()
             .collect();
         chars.reverse();
-        pop_until_outside(&mut chars);
+        let (a, b) = pop_exit_media_selector(&mut chars);
         chars.reverse();
-        for char in &chars {
-            print!("{char}");
-        }
-        println!("");
-        assert_eq!(chars, "hello {wa}".chars().collect::<Vec<char>>())
+        // assert that the remaining characters will be untouched and expected
+        assert_eq!(chars, "hello {wa}".chars().collect::<Vec<char>>());
+        // assert that the media text and selector content is correct
+        assert_eq!(&a, "wahoo ");
+        assert_eq!(&b, " h { rgr grg} wello {w aw a wa} ");
     }
 }

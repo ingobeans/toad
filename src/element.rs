@@ -572,6 +572,18 @@ impl Element {
             style.foreground_color = css::parse_color(color).or(style.foreground_color);
         }
 
+        // if this element is an <img>,
+        // allow width and height attributes to affect style's width and height
+        if self.ty.name == "img" {
+            if let Some(Ok(width)) = self.get_attribute("width").map(|f| f.parse::<u16>()) {
+                style.width = Specified(Measurement::Pixels(width));
+            }
+            if let Some(Ok(height)) = self.get_attribute("height").map(|f| f.parse::<u16>()) {
+                // i legitimately do not know why this needs to be divided by two
+                style.height = Specified(Measurement::Pixels(height / 2));
+            }
+        }
+
         // check all NonInheritedFields in case they are set to inherit, if so, inherit from parent_draw_context
 
         style

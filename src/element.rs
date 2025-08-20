@@ -159,6 +159,10 @@ pub static ELEMENT_TYPES: &[ElementType] = &[
         ..B
     },
     ElementType {
+        name: "section",
+        ..DIV
+    },
+    ElementType {
         name: "cite",
         ..EM_TAG
     },
@@ -470,6 +474,7 @@ pub struct DrawData {
     pub y: u16,
     pub parent_interactable: Option<InteractableElement>,
     pub ancestors_target_info: Vec<ElementTargetInfo>,
+    pub last_item_height: u16,
 }
 pub struct Element {
     pub ty: &'static ElementType,
@@ -596,7 +601,7 @@ impl Element {
         let is_display_block = matches!(style.display, Specified(Display::Block));
 
         if is_display_block && draw_data.x != 0 {
-            draw_data.y += LH;
+            draw_data.y += draw_data.last_item_height.max(LH);
             draw_data.x = 0;
         }
         let mut self_interactable = draw_data.parent_interactable.clone();
@@ -759,6 +764,7 @@ impl Element {
             );
             global_ctx.unknown_sized_elements[index] = Some(actual_height);
         }
+
         if is_display_block && let Specified(color) = style.background_color {
             draw_data.draw_calls.push(DrawCall::Rect(
                 draw_data.x,
@@ -775,8 +781,11 @@ impl Element {
         draw_data.content_height = draw_data.content_height.max(height);
         draw_data.x += width;
         if is_display_block {
+            draw_data.last_item_height = 0;
             draw_data.y = draw_data.y.saturating_add(height);
             draw_data.x = 0;
+        } else {
+            draw_data.last_item_height = height;
         }
 
         draw_data.draw_calls.append(&mut child_data.draw_calls);

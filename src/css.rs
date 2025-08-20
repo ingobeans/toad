@@ -28,8 +28,27 @@ fn parse_rgb_text(text: &str) -> Option<style::Color> {
     })
 }
 fn parse_hex_text(text: &str) -> Option<style::Color> {
-    let value = u32::from_str_radix(&text[1..], 16).ok()?;
-    Some(hex_to_rgb(value))
+    let text = &text[1..];
+
+    // hex color codes in css can be either 6 characters long, or 3.
+    //
+    // if it is the shorthand, each character is repeated once, such that #10f becomes #1100ff
+    if text.len() == 6 {
+        // for 6 character hex codes
+        let value = u32::from_str_radix(text, 16).ok()?;
+        Some(hex_to_rgb(value))
+    } else if text.len() == 3 {
+        // for 3 char hex codes
+        let mut chars = text.chars();
+        let a = chars.next()?;
+        let b = chars.next()?;
+        let c = chars.next()?;
+        let text = format!("{a}{a}{b}{b}{c}{c}");
+        let value = u32::from_str_radix(&text, 16).ok()?;
+        Some(hex_to_rgb(value))
+    } else {
+        None
+    }
 }
 fn parse_color_text(text: &str) -> Option<style::Color> {
     // copied from https://en.wikipedia.org/wiki/Web_colors

@@ -472,6 +472,8 @@ pub struct DrawData {
     pub parent_height: ActualMeasurement,
     pub x: u16,
     pub y: u16,
+    /// Like X, but shouldnt modified by children
+    pub parent_origin_x: u16,
     pub parent_interactable: Option<InteractableElement>,
     pub ancestors_target_info: Vec<ElementTargetInfo>,
     pub last_item_height: u16,
@@ -625,6 +627,7 @@ impl Element {
                     style,
                     draw_data.parent_width,
                     draw_data.parent_interactable.clone(),
+                    draw_data.parent_origin_x,
                 ));
                 draw_data.content_width = draw_data.content_width.max(width * EM);
                 draw_data.content_height = draw_data
@@ -738,9 +741,10 @@ impl Element {
                     *x += draw_data.x;
                     *y += draw_data.y;
                 }
-                DrawCall::Text(x, y, _, _, _, _) => {
+                DrawCall::Text(x, y, _, _, _, _, origin_x) => {
                     *x += draw_data.x;
                     *y += draw_data.y;
+                    *origin_x += draw_data.x;
                 }
             }
         }

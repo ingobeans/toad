@@ -251,7 +251,7 @@ enum DrawCall {
     Image(u16, u16, ActualMeasurement, ActualMeasurement, String),
     /// X, Y, W, H, Color
     Rect(u16, u16, ActualMeasurement, ActualMeasurement, style::Color),
-    /// X, Y, Text, DrawContext, Parent Interactable
+    /// X, Y, Text, DrawContext, Parent Interactable, Parent Origin X
     Text(
         u16,
         u16,
@@ -259,6 +259,7 @@ enum DrawCall {
         ElementDrawContext,
         ActualMeasurement,
         Option<InteractableElement>,
+        u16,
     ),
 }
 impl DrawCall {
@@ -266,7 +267,7 @@ impl DrawCall {
         match self {
             DrawCall::Rect(_, _, _, _, _) => 0,
             DrawCall::Image(_, _, _, _, _) => 1,
-            DrawCall::Text(_, _, _, _, _, _) => 2,
+            DrawCall::Text(_, _, _, _, _, _, _) => 2,
         }
     }
 }
@@ -279,7 +280,9 @@ impl Debug for DrawCall {
             DrawCall::Rect(x, y, w, h, c) => {
                 f.write_str(&format!("Rect({x},{y},{w:?},{h:?},{c:?})"))
             }
-            DrawCall::Text(x, y, text, _, _, _) => f.write_str(&format!("Text({x},{y},'{text}')")),
+            DrawCall::Text(x, y, text, _, _, _, _) => {
+                f.write_str(&format!("Text({x},{y},'{text}')"))
+            }
         }
     }
 }
@@ -809,7 +812,15 @@ impl Toad {
                         actual_cursor_y = y + h;
                     }
                 }
-                DrawCall::Text(x, y, text, mut ctx, parent_width, parent_interactable) => {
+                DrawCall::Text(
+                    x,
+                    y,
+                    text,
+                    mut ctx,
+                    parent_width,
+                    parent_interactable,
+                    parent_origin_x,
+                ) => {
                     if let Some(interactable) = parent_interactable
                         && let Some(tab_amt) = tab.tab_index
                         && tab_amt == interactable.index
@@ -821,7 +832,11 @@ impl Toad {
                     let width = actualize_actual(parent_width, &draws.unknown_sized_elements) / EM;
                     for (index, line) in text.lines().enumerate() {
                         let text_len = line.len() as u16;
-                        let x = x / EM + start_x;
+                        let x = if index == 0 {
+                            x / EM + start_x
+                        } else {
+                            parent_origin_x / EM + start_x
+                        };
 
                         let offset_x = match ctx.text_align {
                             Some(TextAlignment::Centre) if width > x + text_len => {

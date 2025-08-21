@@ -387,6 +387,8 @@ struct Toad {
 }
 impl Toad {
     fn new() -> Result<Self, reqwest::Error> {
+        // i stole the firefox user agent,
+        // because i was scared websites would think my program was a scraper bot if i had something too unique
         let client = Client::builder()
             .user_agent(
                 "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:141.0) Gecko/20100101 Firefox/141.0",
@@ -432,7 +434,7 @@ impl Toad {
         self.draw_topbar(&stdout)?;
         self.draw(&stdout)?;
         while running {
-            if event::poll(Duration::from_secs(1))? {
+            if event::poll(Duration::from_millis(100))? {
                 let event = event::read()?;
                 if !event.is_key_press() {
                     continue;

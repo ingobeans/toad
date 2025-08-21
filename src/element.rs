@@ -1,15 +1,11 @@
-use std::{
-    collections::HashMap,
-    fmt::Debug,
-    io::{self, Write},
-};
+use std::{collections::HashMap, fmt::Debug, io};
 
 use crate::{
     ActualMeasurement, DEFAULT_DRAW_CTX, Display, DrawCall, ElementDrawContext, ElementTargetInfo,
     GlobalDrawContext, InteractableElement, InteractableType, Measurement, NonInheritedField::*,
     TextPrefix, consts::*, css, parsing::parse_special,
 };
-use crossterm::{queue, style};
+use crossterm::style;
 use unicode_width::UnicodeWidthStr;
 
 const RED: style::Color = style::Color::Red;
@@ -110,6 +106,16 @@ static BODY: ElementType = ElementType {
     },
     ..DEFAULT_ELEMENT_TYPE
 };
+static HTML: ElementType = ElementType {
+    name: "html",
+    draw_ctx: ElementDrawContext {
+        width: Specified(Measurement::PercentWidth(1.0)),
+        height: Specified(Measurement::PercentHeight(1.0)),
+        display: Specified(Display::Block),
+        ..DEFAULT_DRAW_CTX
+    },
+    ..DEFAULT_ELEMENT_TYPE
+};
 static PRE: ElementType = ElementType {
     name: "pre",
     draw_ctx: ElementDrawContext {
@@ -140,6 +146,7 @@ pub static ELEMENT_TYPES: &[ElementType] = &[
     B,
     EM_TAG,
     PRE,
+    HTML,
     ElementType {
         name: "i",
         ..EM_TAG
@@ -184,7 +191,7 @@ pub static ELEMENT_TYPES: &[ElementType] = &[
     },
     ElementType {
         name: "main",
-        ..BODY
+        ..HTML
     },
     ElementType {
         name: "article",
@@ -246,10 +253,6 @@ pub static ELEMENT_TYPES: &[ElementType] = &[
         ..DEFAULT_ELEMENT_TYPE
     },
     ElementType { name: "li", ..P },
-    ElementType {
-        name: "html",
-        ..BODY
-    },
     ElementType {
         name: "meta",
         void_element: true,
@@ -374,52 +377,6 @@ fn disrespect_whitespace(text: &str, allow_leading: bool) -> String {
 fn is_whitespace(text: &str) -> bool {
     text.chars().all(|c| c.is_whitespace())
 }
-pub fn apply_draw_ctx<T: Write>(
-    draw_ctx: ElementDrawContext,
-    old_ctx: &mut ElementDrawContext,
-    stdout: &mut T,
-) -> io::Result<()> {
-    if *old_ctx == draw_ctx {
-        return Ok(());
-    }
-    let needs_clearing = (!draw_ctx.bold && old_ctx.bold) || (!draw_ctx.italics && old_ctx.italics);
-    let foreground_color = draw_ctx.foreground_color.unwrap_or(style::Color::Black);
-    let background_color = draw_ctx
-        .background_color
-        .unwrap_or(DEFAULT_BACKGROUND_COLOR);
-
-    if needs_clearing {
-        queue!(stdout, style::ResetColor)?;
-        old_ctx.bold = false;
-        old_ctx.italics = false;
-        old_ctx.foreground_color = None;
-    }
-    let mut attributes = style::Attributes::none();
-
-    if draw_ctx.bold {
-        attributes.set(style::Attribute::Bold);
-    }
-    if draw_ctx.italics {
-        attributes.set(style::Attribute::Italic);
-    }
-
-    queue!(
-        stdout,
-        style::SetStyle(style::ContentStyle {
-            foreground_color: Some(foreground_color),
-            background_color: Some(background_color),
-            attributes,
-            ..Default::default()
-        })
-    )?;
-
-    old_ctx.bold = draw_ctx.bold;
-    old_ctx.italics = draw_ctx.italics;
-    old_ctx.foreground_color = draw_ctx.foreground_color;
-    old_ctx.background_color = draw_ctx.background_color;
-    Ok(())
-}
-
 fn actualize(
     a: Measurement,
     draw_data: &DrawData,
@@ -613,6 +570,11 @@ impl Element {
             return Ok(());
         }
 
+        let is_body = self.ty.name == "body";
+        if is_body && let Specified(color) = style.background_color {
+            draw_data.draw_calls.push(DrawCall::ClearColor(color));
+        }
+
         let is_display_block = matches!(style.display, Specified(Display::Block));
 
         if is_display_block && draw_data.x != 0 {
@@ -771,6 +733,7 @@ impl Element {
                     *x += draw_data.x;
                     *y += draw_data.y;
                 }
+                _ => {}
             }
         }
 
@@ -794,7 +757,10 @@ impl Element {
             global_ctx.unknown_sized_elements[index] = Some(actual_height);
         }
 
-        if is_display_block && let Specified(color) = style.background_color {
+        if !is_body
+            && is_display_block
+            && let Specified(color) = style.background_color
+        {
             draw_data.draw_calls.push(DrawCall::Rect(
                 draw_data.x,
                 draw_data.y,

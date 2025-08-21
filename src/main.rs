@@ -9,11 +9,13 @@ use std::{
 };
 use tokio::task::JoinHandle;
 
+use buffer::*;
 use consts::*;
 use element::*;
 use parsing::*;
 use utils::*;
 
+mod buffer;
 mod consts;
 mod css;
 mod element;
@@ -260,21 +262,24 @@ enum DrawCall {
         ActualMeasurement,
         Option<InteractableElement>,
     ),
+    ClearColor(style::Color),
 }
 impl DrawCall {
     fn order(&self) -> u8 {
         match self {
-            DrawCall::Rect(_, _, _, _, _) => 0,
-            DrawCall::Image(_, _, _, _, _) => 1,
-            DrawCall::Text(_, _, _, _, _, _) => 2,
+            DrawCall::ClearColor(_) => 0,
+            DrawCall::Rect(_, _, _, _, _) => 1,
+            DrawCall::Image(_, _, _, _, _) => 2,
+            DrawCall::Text(_, _, _, _, _, _) => 3,
         }
     }
 }
 impl Debug for DrawCall {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            DrawCall::ClearColor(color) => f.write_str(&format!("Clear({color:?})")),
             DrawCall::Image(x, y, w, h, source) => {
-                f.write_str(&format!("Rect({x},{y},{w:?},{h:?},{source:?})"))
+                f.write_str(&format!("Image({x},{y},{w:?},{h:?},{source:?})"))
             }
             DrawCall::Rect(x, y, w, h, c) => {
                 f.write_str(&format!("Rect({x},{y},{w:?},{h:?},{c:?})"))
@@ -331,6 +336,26 @@ impl Debug for WebpageDebugInfo {
     }
 }
 
+fn actualize_actual(
+    a: ActualMeasurement,
+    unknown_sized_elements: &Vec<Option<ActualMeasurement>>,
+) -> u16 {
+    match a {
+        ActualMeasurement::Pixels(p) => p,
+        ActualMeasurement::PercentOfUnknown(i, p) => {
+            (actualize_actual(unknown_sized_elements[i].unwrap(), unknown_sized_elements) as f32
+                * p) as u16
+        }
+        ActualMeasurement::Waiting(i) => {
+            if let ActualMeasurement::Pixels(p) = unknown_sized_elements[i].unwrap() {
+                p
+            } else {
+                panic!("Unresolved ActualMeasurement::Waiting")
+            }
+        }
+    }
+}
+
 const DEBUG_PAGE: &str = include_str!("debug.html");
 
 async fn get_data(url: Url, ty: DataType, client: Client) -> Option<DataEntry> {
@@ -358,6 +383,7 @@ struct Toad {
     fetched_assets: HashMap<Url, DataEntry>,
     fetches: Vec<(usize, Url, FetchFuture)>,
     current_page_id: usize,
+    prev_buffer: Option<Buffer>,
 }
 impl Toad {
     fn new() -> Result<Self, reqwest::Error> {
@@ -515,6 +541,7 @@ impl Toad {
                             if let Some(page) = self.tabs.get_mut(self.tab_index) {
                                 refresh_style(page, &self.fetched_assets);
                                 page.cached_draw = None;
+                                self.prev_buffer = None;
                             }
                             self.draw_topbar(&stdout)?;
                             self.draw(&stdout)?;
@@ -640,13 +667,8 @@ impl Toad {
         let start_x = 0;
         let start_y = 2;
         let (screen_width, screen_height) = terminal::size()?;
-        let screen_width = screen_width - 1;
         let screen_height = screen_height - start_y;
-        queue!(
-            stdout,
-            cursor::MoveTo(start_x, start_y),
-            terminal::Clear(terminal::ClearType::FromCursorDown)
-        )?;
+        queue!(stdout, cursor::MoveTo(start_x, start_y))?;
 
         let mut draws = if let Some(calls) = &tab.cached_draw {
             calls.clone()
@@ -678,86 +700,39 @@ impl Toad {
             tab.cached_draw = Some(draws.clone());
             draws
         };
-        let mut last = DEFAULT_DRAW_CTX;
-        let mut rects: Vec<(u16, u16, u16, u16, style::Color)> = Vec::new();
-        let mut actual_cursor_x = 0;
-        let mut actual_cursor_y = 0;
 
-        fn actualize_actual(
-            a: ActualMeasurement,
-            unknown_sized_elements: &Vec<Option<ActualMeasurement>>,
-        ) -> u16 {
-            match a {
-                ActualMeasurement::Pixels(p) => p,
-                ActualMeasurement::PercentOfUnknown(i, p) => {
-                    (actualize_actual(unknown_sized_elements[i].unwrap(), unknown_sized_elements)
-                        as f32
-                        * p) as u16
-                }
-                ActualMeasurement::Waiting(i) => {
-                    if let ActualMeasurement::Pixels(p) = unknown_sized_elements[i].unwrap() {
-                        p
-                    } else {
-                        panic!("Unresolved ActualMeasurement::Waiting")
-                    }
-                }
-            }
-        }
         tab.hovered_interactable = None;
+        let mut buffer = Buffer::empty(screen_width, screen_height);
 
         while let Some(call) = draws.calls.pop() {
             match call {
+                DrawCall::ClearColor(color) => {
+                    buffer.clear_color(color);
+                }
                 DrawCall::Rect(x, y, w, h, color) => {
-                    let x = x / EM + start_x;
-                    let mut y = y / LH + start_y;
+                    let x = x / EM;
+                    let mut y = y / LH;
 
                     let w = actualize_actual(w, &draws.unknown_sized_elements);
                     let h = actualize_actual(h, &draws.unknown_sized_elements);
                     let w = w / EM;
                     let mut h = h / LH;
-                    if x == start_x
-                        && y == start_y
-                        && w + start_x >= screen_width
-                        && h + start_y >= screen_height
-                    {
-                        if x != actual_cursor_x || y != actual_cursor_y {
-                            actual_cursor_x = x;
-                            actual_cursor_y = y;
-                            queue!(stdout, cursor::MoveTo(x, y))?;
-                        }
-                        queue!(
-                            stdout,
-                            style::SetBackgroundColor(color),
-                            terminal::Clear(terminal::ClearType::FromCursorDown)
-                        )?;
-                        continue;
-                    }
-                    let bottom_out = y - start_y < tab.scroll_y;
+                    let bottom_out = y < tab.scroll_y;
 
-                    if bottom_out && y + h - start_y < tab.scroll_y {
+                    if bottom_out && y + h < tab.scroll_y {
                         continue;
                     } else if bottom_out {
                         let o = y;
-                        y = start_y + tab.scroll_y;
+                        y = tab.scroll_y;
                         h -= y - o;
-                    } else if y - tab.scroll_y > (screen_height + start_y) {
+                    } else if y - tab.scroll_y > (screen_height) {
                         continue;
-                    } else if y + h - tab.scroll_y > (screen_height + start_y) {
-                        h = (screen_height + start_y) + tab.scroll_y - y;
+                    } else if y + h - tab.scroll_y > (screen_height) {
+                        h = screen_height + tab.scroll_y - y;
                     }
+                    y -= tab.scroll_y;
 
-                    let y = y.saturating_sub(tab.scroll_y);
-                    rects.push((x, y, w, h, color));
-
-                    let mut ctx = last;
-                    ctx.background_color = Specified(color);
-                    apply_draw_ctx(ctx, &mut last, &mut stdout.lock())?;
-                    for i in 0..h {
-                        queue!(stdout, cursor::MoveTo(x, y + i))?;
-                        stdout.lock().write_all(&b" ".repeat(w as _))?;
-                        actual_cursor_x = x + w;
-                        actual_cursor_y = y + h;
-                    }
+                    buffer.draw_rect(x, y, w, h, color);
                 }
                 DrawCall::Image(x, y, w, h, source) => {
                     let Ok(url) = Url::options().base_url(tab.url.as_ref()).parse(&source) else {
@@ -766,47 +741,44 @@ impl Toad {
                     let Some(DataEntry::Image(image)) = self.fetched_assets.get(&url) else {
                         continue;
                     };
+                    let x = x / EM;
+                    let mut y = y / LH;
+
                     let w = actualize_actual(w, &draws.unknown_sized_elements);
                     let h = actualize_actual(h, &draws.unknown_sized_elements);
-                    let x = x / EM + start_x;
-                    let mut y = y / LH + start_y;
                     let w = w / EM;
                     let mut h = h / LH;
+
                     let image = image.resize_exact(
                         w as u32,
                         h as u32 * 2,
                         image::imageops::FilterType::Nearest,
                     );
 
-                    let bottom_out = y - start_y < tab.scroll_y;
+                    let bottom_out = y < tab.scroll_y;
                     let mut image_row_offset = 0;
 
-                    if bottom_out && y + h - start_y < tab.scroll_y {
+                    if bottom_out && y + h < tab.scroll_y {
                         continue;
                     } else if bottom_out {
                         let o = y;
-                        y = start_y + tab.scroll_y;
+                        y = tab.scroll_y;
                         h -= y - o;
                         image_row_offset += (y - o) * 2;
-                    } else if y - tab.scroll_y > (screen_height + start_y) {
+                    } else if y - tab.scroll_y > screen_height {
                         continue;
-                    } else if y + h - tab.scroll_y > (screen_height + start_y) {
-                        h = (screen_height + start_y) + tab.scroll_y - y;
+                    } else if y + h - tab.scroll_y > (screen_height) {
+                        h = (screen_height) + tab.scroll_y - y;
                     }
 
                     let y = y.saturating_sub(tab.scroll_y);
                     for i in (0..h as u32 * 2).step_by(2) {
-                        queue!(stdout, cursor::MoveTo(x, y + i as u16 / 2))?;
-                        hamis::draw_row(
-                            &mut stdout,
-                            &image,
+                        buffer.draw_img_row(
+                            x,
+                            y + i as u16 / 2,
                             i + image_row_offset as u32,
-                            1,
-                            Some(DEFAULT_BACKGROUND_COLOR),
-                        )?;
-
-                        actual_cursor_x = x + w;
-                        actual_cursor_y = y + h;
+                            &image,
+                        );
                     }
                 }
                 DrawCall::Text(x, y, text, mut ctx, parent_width, parent_interactable) => {
@@ -817,11 +789,11 @@ impl Toad {
                         tab.hovered_interactable = Some(interactable);
                         ctx.background_color = Specified(style::Color::Blue);
                     }
-                    apply_draw_ctx(ctx, &mut last, &mut stdout.lock())?;
+                    let x = x / EM;
+                    let y = y / LH;
                     let width = actualize_actual(parent_width, &draws.unknown_sized_elements) / EM;
 
                     let text_len = text.len() as u16;
-                    let x = x / EM + start_x;
 
                     let offset_x = match ctx.text_align {
                         Some(TextAlignment::Centre) if width > x + text_len => {
@@ -831,77 +803,31 @@ impl Toad {
                         _ => 0,
                     };
                     let x = x + offset_x;
-                    let y = y / LH + start_y;
-                    if y - start_y < tab.scroll_y || y - tab.scroll_y >= (screen_height + start_y) {
-                        continue;
-                    }
-                    if x + text_len > screen_width {
-                        if x >= screen_width {
-                            continue;
-                        }
-                        continue;
-                    }
-                    let y = y - tab.scroll_y;
-                    let mut chunks = Vec::new();
-                    if let Unset = ctx.background_color {
-                        // check if its over any rects
-                        for (rx, ry, rw, rh, color) in rects.iter() {
-                            let horizontal_range = *rx..(rx + rw);
-                            let vertical_range = *ry..(ry + rh);
-                            if vertical_range.contains(&y)
-                                && (horizontal_range.contains(&x)
-                                    || horizontal_range.contains(&(x + text_len)))
-                            {
-                                let start = rx.max(&x) - x;
-                                let end = (rx + rw).min(x + text_len) - x;
-                                // remove any chunks that are covered by this chunk
-                                chunks.retain(|(s, e, _)| *s < start || *e > end);
 
-                                chunks.push((start, end, color));
-                            }
-                        }
-                    }
-                    if x != actual_cursor_x || y != actual_cursor_y {
-                        queue!(stdout, cursor::MoveTo(x, y))?;
-                    }
-                    actual_cursor_y = y;
-                    actual_cursor_x = x;
-                    if chunks
-                        .first()
-                        .is_none_or(|(start, end, _)| *start > 0 || *end < text.len() as u16)
-                    {
-                        print!("{text}");
-                        actual_cursor_x = x + text_len;
-                    }
-                    for (start, end, color) in chunks.into_iter() {
-                        let x = start + x;
-                        let line = &text[start as usize..end as usize];
-                        let mut ctx = ctx;
-                        ctx.background_color = Specified(*color);
-                        apply_draw_ctx(ctx, &mut last, &mut stdout.lock())?;
-                        if x != actual_cursor_x {
-                            actual_cursor_x = x + line.len() as u16;
-                            queue!(stdout, cursor::MoveToColumn(x))?;
-                        }
-                        print!("{line}");
+                    if let Some(y) = y.checked_sub(tab.scroll_y) {
+                        buffer.draw_str(x, y, &text, &ctx);
                     }
                 }
             }
         }
-
         if draws.content_height / LH > screen_height {
             // draw scrollbar
-            let scroll_amt = ((tab.scroll_y * LH) as f32
+            let scroll_amt = (((tab.scroll_y * LH) as f32
                 / (draws.content_height - screen_height) as f32)
                 .min(1.0)
-                * screen_height as f32;
-            queue!(
-                stdout,
-                cursor::MoveTo(screen_width - 1, start_y + scroll_amt as u16),
-                style::SetForegroundColor(style::Color::Black),
-            )?;
-            print!("█");
+                * screen_height as f32)
+                .min(screen_height as f32 - 1.0);
+            buffer.set_pixel(screen_width - 1, scroll_amt as u16, style::Color::Black);
         }
+
+        buffer.render(
+            &mut stdout,
+            self.prev_buffer.as_ref(),
+            start_x as _,
+            start_y as _,
+        )?;
+        self.prev_buffer = Some(buffer);
+
         queue!(stdout, style::ResetColor)
     }
 }

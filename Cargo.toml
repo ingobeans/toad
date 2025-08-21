@@ -1,6 +1,6 @@
 [package]
 name = "toad"
-version = "0.8.19"
+version = "0.8.20"
 edition = "2024"
 
 [dependencies]
@@ -17,3 +17,4 @@ image = { version = "0.25.6", default-features = false, features = [
     "png",
     "webp",
 ] }
+unicode-width = "0.2.1"

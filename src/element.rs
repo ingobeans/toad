@@ -10,6 +10,7 @@ use crate::{
     TextPrefix, consts::*, css, parsing::parse_special,
 };
 use crossterm::{queue, style};
+use unicode_width::UnicodeWidthStr;
 
 const RED: style::Color = style::Color::Red;
 
@@ -636,7 +637,7 @@ impl Element {
                 let mut any_text = false;
 
                 while let Some(line) = lines.next() {
-                    let len = line.len() as u16;
+                    let len = line.width() as u16;
                     if len != 0 {
                         any_text = true;
                     }

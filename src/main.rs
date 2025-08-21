@@ -259,7 +259,6 @@ enum DrawCall {
         ElementDrawContext,
         ActualMeasurement,
         Option<InteractableElement>,
-        u16,
     ),
 }
 impl DrawCall {
@@ -267,7 +266,7 @@ impl DrawCall {
         match self {
             DrawCall::Rect(_, _, _, _, _) => 0,
             DrawCall::Image(_, _, _, _, _) => 1,
-            DrawCall::Text(_, _, _, _, _, _, _) => 2,
+            DrawCall::Text(_, _, _, _, _, _) => 2,
         }
     }
 }
@@ -280,9 +279,7 @@ impl Debug for DrawCall {
             DrawCall::Rect(x, y, w, h, c) => {
                 f.write_str(&format!("Rect({x},{y},{w:?},{h:?},{c:?})"))
             }
-            DrawCall::Text(x, y, text, _, _, _, _) => {
-                f.write_str(&format!("Text({x},{y},'{text}')"))
-            }
+            DrawCall::Text(x, y, text, _, _, _) => f.write_str(&format!("Text({x},{y},'{text}')")),
         }
     }
 }
@@ -812,15 +809,7 @@ impl Toad {
                         actual_cursor_y = y + h;
                     }
                 }
-                DrawCall::Text(
-                    x,
-                    y,
-                    text,
-                    mut ctx,
-                    parent_width,
-                    parent_interactable,
-                    parent_origin_x,
-                ) => {
+                DrawCall::Text(x, y, text, mut ctx, parent_width, parent_interactable) => {
                     if let Some(interactable) = parent_interactable
                         && let Some(tab_amt) = tab.tab_index
                         && tab_amt == interactable.index
@@ -830,78 +819,71 @@ impl Toad {
                     }
                     apply_draw_ctx(ctx, &mut last, &mut stdout.lock())?;
                     let width = actualize_actual(parent_width, &draws.unknown_sized_elements) / EM;
-                    for (index, line) in text.lines().enumerate() {
-                        let text_len = line.len() as u16;
-                        let x = if index == 0 {
-                            x / EM + start_x
-                        } else {
-                            parent_origin_x / EM + start_x
-                        };
 
-                        let offset_x = match ctx.text_align {
-                            Some(TextAlignment::Centre) if width > x + text_len => {
-                                (width - x) / 2 - text_len / 2
-                            }
-                            Some(TextAlignment::Right) if width > text_len => width - text_len,
-                            _ => 0,
-                        };
-                        let x = x + offset_x;
-                        let y = y / LH + index as u16 + start_y;
-                        if y - start_y < tab.scroll_y
-                            || y - tab.scroll_y >= (screen_height + start_y)
-                        {
+                    let text_len = text.len() as u16;
+                    let x = x / EM + start_x;
+
+                    let offset_x = match ctx.text_align {
+                        Some(TextAlignment::Centre) if width > x + text_len => {
+                            (width - x) / 2 - text_len / 2
+                        }
+                        Some(TextAlignment::Right) if width > text_len => width - text_len,
+                        _ => 0,
+                    };
+                    let x = x + offset_x;
+                    let y = y / LH + start_y;
+                    if y - start_y < tab.scroll_y || y - tab.scroll_y >= (screen_height + start_y) {
+                        continue;
+                    }
+                    if x + text_len > screen_width {
+                        if x >= screen_width {
                             continue;
                         }
-                        if x + text_len > screen_width {
-                            if x >= screen_width {
-                                continue;
-                            }
-                            continue;
-                        }
-                        let y = y - tab.scroll_y;
-                        let mut chunks = Vec::new();
-                        if let Unset = ctx.background_color {
-                            // check if its over any rects
-                            for (rx, ry, rw, rh, color) in rects.iter() {
-                                let horizontal_range = *rx..(rx + rw);
-                                let vertical_range = *ry..(ry + rh);
-                                if vertical_range.contains(&y)
-                                    && (horizontal_range.contains(&x)
-                                        || horizontal_range.contains(&(x + text_len)))
-                                {
-                                    let start = rx.max(&x) - x;
-                                    let end = (rx + rw).min(x + text_len) - x;
-                                    // remove any chunks that are covered by this chunk
-                                    chunks.retain(|(s, e, _)| *s < start || *e > end);
+                        continue;
+                    }
+                    let y = y - tab.scroll_y;
+                    let mut chunks = Vec::new();
+                    if let Unset = ctx.background_color {
+                        // check if its over any rects
+                        for (rx, ry, rw, rh, color) in rects.iter() {
+                            let horizontal_range = *rx..(rx + rw);
+                            let vertical_range = *ry..(ry + rh);
+                            if vertical_range.contains(&y)
+                                && (horizontal_range.contains(&x)
+                                    || horizontal_range.contains(&(x + text_len)))
+                            {
+                                let start = rx.max(&x) - x;
+                                let end = (rx + rw).min(x + text_len) - x;
+                                // remove any chunks that are covered by this chunk
+                                chunks.retain(|(s, e, _)| *s < start || *e > end);
 
-                                    chunks.push((start, end, color));
-                                }
+                                chunks.push((start, end, color));
                             }
                         }
-                        if x != actual_cursor_x || y != actual_cursor_y {
-                            queue!(stdout, cursor::MoveTo(x, y))?;
+                    }
+                    if x != actual_cursor_x || y != actual_cursor_y {
+                        queue!(stdout, cursor::MoveTo(x, y))?;
+                    }
+                    actual_cursor_y = y;
+                    actual_cursor_x = x;
+                    if chunks
+                        .first()
+                        .is_none_or(|(start, end, _)| *start > 0 || *end < text.len() as u16)
+                    {
+                        print!("{text}");
+                        actual_cursor_x = x + text_len;
+                    }
+                    for (start, end, color) in chunks.into_iter() {
+                        let x = start + x;
+                        let line = &text[start as usize..end as usize];
+                        let mut ctx = ctx;
+                        ctx.background_color = Specified(*color);
+                        apply_draw_ctx(ctx, &mut last, &mut stdout.lock())?;
+                        if x != actual_cursor_x {
+                            actual_cursor_x = x + line.len() as u16;
+                            queue!(stdout, cursor::MoveToColumn(x))?;
                         }
-                        actual_cursor_y = y;
-                        actual_cursor_x = x;
-                        if chunks
-                            .first()
-                            .is_none_or(|(start, end, _)| *start > 0 || *end < line.len() as u16)
-                        {
-                            print!("{line}");
-                            actual_cursor_x = x + text_len;
-                        }
-                        for (start, end, color) in chunks.into_iter() {
-                            let x = start + x;
-                            let line = &line[start as usize..end as usize];
-                            let mut ctx = ctx;
-                            ctx.background_color = Specified(*color);
-                            apply_draw_ctx(ctx, &mut last, &mut stdout.lock())?;
-                            if x != actual_cursor_x {
-                                actual_cursor_x = x + line.len() as u16;
-                                queue!(stdout, cursor::MoveToColumn(x))?;
-                            }
-                            print!("{line}");
-                        }
+                        print!("{line}");
                     }
                 }
             }

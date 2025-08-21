@@ -320,32 +320,27 @@ pub fn fit_text_in_width(
     text: &str,
     parent_width: ActualMeasurement,
     starting_x: u16,
-) -> (String, u16, u16, u16) {
-    let mut parts = String::new();
-    let mut width = 0;
+) -> Vec<String> {
+    let mut parts = vec![String::new()];
     let mut x = starting_x / EM;
-    let mut y = 0;
     let parent_width = parent_width.get_pixels();
     for char in text.chars() {
         if char == '\n' {
-            width = width.max(x);
             x = 0;
-            y += 1;
+            parts.push(String::new());
+            continue;
         } else {
             x += 1;
         }
-        parts.push(char);
+        parts.last_mut().unwrap().push(char);
         if let Some(parent_width) = parent_width
             && x >= parent_width / EM
         {
-            width = width.max(x);
             x = 0;
-            y += 1;
-            parts.push('\n');
+            parts.push(String::new());
         }
     }
-    width = width.max(x);
-    (parts, width, x, y)
+    parts
 }
 pub fn get_element_type(name: &str) -> Option<&'static ElementType> {
     if !ELEMENT_TYPES.iter().any(|f| f.name == name) {
@@ -472,8 +467,6 @@ pub struct DrawData {
     pub parent_height: ActualMeasurement,
     pub x: u16,
     pub y: u16,
-    /// Like X, but shouldnt modified by children
-    pub parent_origin_x: u16,
     pub parent_interactable: Option<InteractableElement>,
     pub ancestors_target_info: Vec<ElementTargetInfo>,
     pub last_item_height: u16,
@@ -630,23 +623,28 @@ impl Element {
                     disrespect_whitespace(text)
                 };
                 text = parse_special(&text);
-                let (text, width, final_x, final_y) =
-                    fit_text_in_width(&text, draw_data.parent_width, draw_data.x);
-                draw_data.draw_calls.push(DrawCall::Text(
-                    draw_data.x,
-                    draw_data.y,
-                    text,
-                    style,
-                    draw_data.parent_width,
-                    draw_data.parent_interactable.clone(),
-                    draw_data.parent_origin_x,
-                ));
-                draw_data.content_width = draw_data.content_width.max(width * EM);
-                draw_data.content_height = draw_data
-                    .content_height
-                    .max(final_y.saturating_mul(LH).saturating_add(LH));
-                draw_data.x = final_x * EM;
-                draw_data.y = draw_data.y.saturating_add(final_y.saturating_mul(LH));
+                let mut lines = fit_text_in_width(&text, draw_data.parent_width, draw_data.x)
+                    .into_iter()
+                    .peekable();
+
+                while let Some(line) = lines.next() {
+                    let len = line.len() as u16;
+                    draw_data.draw_calls.push(DrawCall::Text(
+                        draw_data.x,
+                        draw_data.y,
+                        line,
+                        style,
+                        draw_data.parent_width,
+                        draw_data.parent_interactable.clone(),
+                    ));
+                    draw_data.x += len * EM;
+                    draw_data.content_width = draw_data.content_width.max(draw_data.x);
+                    if lines.peek().is_some() {
+                        draw_data.x = 0;
+                        draw_data.y += LH;
+                    }
+                }
+                draw_data.content_height = draw_data.content_height.max(draw_data.y + LH);
             }
             return Ok(());
         } else if self.ty.name == "a"
@@ -753,10 +751,9 @@ impl Element {
                     *x += draw_data.x;
                     *y += draw_data.y;
                 }
-                DrawCall::Text(x, y, _, _, _, _, origin_x) => {
+                DrawCall::Text(x, y, _, _, _, _) => {
                     *x += draw_data.x;
                     *y += draw_data.y;
-                    *origin_x += draw_data.x;
                 }
             }
         }

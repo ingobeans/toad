@@ -277,6 +277,10 @@ pub static ELEMENT_TYPES: &[ElementType] = &[
     },
     ElementType { name: "nav", ..DIV },
     ElementType {
+        name: "bdi",
+        ..SPAN
+    },
+    ElementType {
         name: "head",
         draw_ctx: ElementDrawContext {
             display: Specified(Display::None),
@@ -349,10 +353,10 @@ pub fn get_element_type(name: &str) -> Option<&'static ElementType> {
     ELEMENT_TYPES.iter().find(|f| f.name == name)
 }
 /// Removes repeated whitespace and newlines
-fn disrespect_whitespace(text: &str) -> String {
+fn disrespect_whitespace(text: &str, allow_leading: bool) -> String {
     let text = text.replace("\n", "").replace("\r", "");
     let mut new = String::new();
-    let mut last_was_whitespace = true;
+    let mut last_was_whitespace = !allow_leading;
     for char in text.chars() {
         if char.is_whitespace() {
             if last_was_whitespace {
@@ -470,6 +474,9 @@ pub struct DrawData {
     pub parent_interactable: Option<InteractableElement>,
     pub ancestors_target_info: Vec<ElementTargetInfo>,
     pub last_item_height: u16,
+    /// Condition set to true if the previous element drawn with this context was both `display: inline`,
+    /// and had a non-zero width. Used to tell whether a leading whitespace should be allowed for text.
+    pub last_was_inline_and_sized: bool,
 }
 pub struct Element {
     pub ty: &'static ElementType,
@@ -620,15 +627,19 @@ impl Element {
                 let mut text = if style.respect_whitespace {
                     text.clone()
                 } else {
-                    disrespect_whitespace(text)
+                    disrespect_whitespace(text, draw_data.last_was_inline_and_sized)
                 };
                 text = parse_special(&text);
                 let mut lines = fit_text_in_width(&text, draw_data.parent_width, draw_data.x)
                     .into_iter()
                     .peekable();
+                let mut any_text = false;
 
                 while let Some(line) = lines.next() {
                     let len = line.len() as u16;
+                    if len != 0 {
+                        any_text = true;
+                    }
                     draw_data.draw_calls.push(DrawCall::Text(
                         draw_data.x,
                         draw_data.y,
@@ -645,6 +656,8 @@ impl Element {
                     }
                 }
                 draw_data.content_height = draw_data.content_height.max(draw_data.y + LH);
+
+                draw_data.last_was_inline_and_sized = !is_display_block && any_text;
             }
             return Ok(());
         } else if self.ty.name == "a"
@@ -701,6 +714,7 @@ impl Element {
                     .max(actual_height.get_pixels_lossy());
             }
 
+            draw_data.last_was_inline_and_sized = false;
             draw_data.x += actual_width.get_pixels_lossy();
             if is_display_block
                 && let Some(h) = actual_height.get_pixels()
@@ -730,6 +744,7 @@ impl Element {
             parent_height: actual_height,
             parent_interactable: self_interactable,
             ancestors_target_info: draw_data_ancestor_info,
+            last_was_inline_and_sized: draw_data.last_was_inline_and_sized,
             ..Default::default()
         };
         for child in self.children.iter() {
@@ -800,6 +815,7 @@ impl Element {
         } else {
             draw_data.last_item_height = height;
         }
+        draw_data.last_was_inline_and_sized = !is_display_block && width > 0;
 
         draw_data.draw_calls.append(&mut child_data.draw_calls);
 
@@ -814,8 +830,12 @@ mod tests {
     #[test]
     fn test_disrespect_whitespace() {
         let a = "helo        there\nmy\nfriend";
-        assert_eq!(disrespect_whitespace(a), String::from("helo theremyfriend"));
+        assert_eq!(
+            disrespect_whitespace(a, false),
+            String::from("helo theremyfriend")
+        );
         let b = "\t\t   hi";
-        assert_eq!(disrespect_whitespace(b), String::from("hi"))
+        assert_eq!(disrespect_whitespace(b, false), String::from("hi"));
+        assert_eq!(disrespect_whitespace(b, true), String::from("\thi"));
     }
 }

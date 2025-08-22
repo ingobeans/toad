@@ -157,7 +157,11 @@ fn try_apply_rule(ctx: &mut ElementDrawContext, rule: &str) {
     let Some((key, value)) = rule.split_once(':') else {
         return;
     };
-    let (key, value) = (key.trim(), value.trim());
+    let (key, mut value) = (key.trim(), value.trim());
+    // trim away endings like !important
+    if let Some((first, _)) = value.split_once('!') {
+        value = first;
+    }
     match key {
         "color" => {
             if let Some(color) = parse_color(value) {

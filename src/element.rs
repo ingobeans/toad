@@ -279,6 +279,10 @@ pub static ELEMENT_TYPES: &[ElementType] = &[
         void_element: true,
         ..DEFAULT_ELEMENT_TYPE
     },
+    ElementType {
+        name: "time",
+        ..SPAN
+    },
     ElementType { name: "nav", ..DIV },
     ElementType {
         name: "bdi",

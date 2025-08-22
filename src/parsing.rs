@@ -146,6 +146,26 @@ fn element_to_datatype(element: &Element) -> Option<(DataType, String)> {
         _ => None,
     }
 }
+fn handle_new_element(element: &Element, debug_info: &mut WebpageDebugInfo) {
+    if let Some(asset) = element_to_datatype(element) {
+        debug_info.fetch_queue.push(asset);
+    }
+    if element.ty.name == "meta"
+        && let Some(http_equiv) = element.get_attribute("http-equiv")
+        && http_equiv == "refresh"
+        && let Some(content) = element.get_attribute("content")
+    {
+        if let Some((_, url)) = content.split_once(";") {
+            debug_info.redirect_to = Some(
+                parse_special(url)
+                    .trim()
+                    .trim_start_matches("url=")
+                    .trim_matches('"')
+                    .to_string(),
+            );
+        }
+    }
+}
 
 pub fn parse(buf: &mut Vec<char>, debug_info: &mut WebpageDebugInfo) -> Vec<Element> {
     let mut elements = Vec::new();
@@ -158,9 +178,7 @@ pub fn parse(buf: &mut Vec<char>, debug_info: &mut WebpageDebugInfo) -> Vec<Elem
                         let mut element = Element::new(get_element_type(name.trim(), debug_info));
 
                         element.set_attributes(attributes);
-                        if let Some(asset) = element_to_datatype(&element) {
-                            debug_info.fetch_queue.push(asset);
-                        }
+                        handle_new_element(&element, debug_info);
                         if !element.ty.void_element && !element.ty.stops_parsing {
                             element.children = parse(buf, debug_info);
                         } else if element.ty.stops_parsing {
@@ -178,9 +196,7 @@ pub fn parse(buf: &mut Vec<char>, debug_info: &mut WebpageDebugInfo) -> Vec<Elem
                         let mut element = Element::new(get_element_type(name.trim(), debug_info));
 
                         element.set_attributes(attributes);
-                        if let Some(asset) = element_to_datatype(&element) {
-                            debug_info.fetch_queue.push(asset);
-                        }
+                        handle_new_element(&element, debug_info);
                         elements.push(element);
                         state = ParseState::WaitingForElement;
                     }

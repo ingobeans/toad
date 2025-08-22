@@ -322,6 +322,7 @@ struct WebpageDebugInfo {
     info_log: Vec<String>,
     unknown_elements: Vec<String>,
     fetch_queue: Vec<(DataType, String)>,
+    redirect_to: Option<String>,
 }
 impl Debug for WebpageDebugInfo {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -331,8 +332,8 @@ impl Debug for WebpageDebugInfo {
         }
         write!(
             f,
-            "Info Log: \n\n{log}\n\nUnknown elements: {:?}",
-            self.unknown_elements
+            "Info Log: \n\n{log}\n\nUnknown elements: {:?}\n\nRedirect to: {:?}",
+            self.unknown_elements, self.redirect_to
         )
     }
 }
@@ -410,14 +411,23 @@ impl Toad {
             f
         })
     }
-    fn open_page(&mut self, mut page: Webpage) {
+    async fn open_page(&mut self, mut page: Webpage) {
         if !self.tabs.is_empty() {
             self.tab_index += 1;
         }
+        let url = page.url.as_ref().cloned();
+        let options = Url::options().base_url(url.as_ref());
+        if let Some(redirect) = &page.debug_info.redirect_to
+            && let Ok(url) = options.parse(redirect)
+        {
+            if let Some(new) = self.get_url(url).await {
+                page = new;
+            }
+        }
+
         refresh_style(&mut page, &self.fetched_assets);
         page.indentifier = self.current_page_id;
         for (ty, source) in page.debug_info.fetch_queue.drain(..) {
-            let options = Url::options().base_url(page.url.as_ref());
             let Ok(url) = options.parse(&source) else {
                 continue;
             };
@@ -459,7 +469,7 @@ impl Toad {
                                     continue;
                                 };
                                 if let Some(page) = self.get_url(url).await {
-                                    self.open_page(page);
+                                    self.open_page(page).await;
                                 }
 
                                 self.draw_topbar(&stdout)?;
@@ -486,7 +496,7 @@ impl Toad {
                                 .replace("{STYLE_TARGETS}", &sanitize(&s))
                                 .replace("{PAGE}", &page_text);
                             if let Some(page) = parse_html(&html) {
-                                self.open_page(page);
+                                self.open_page(page).await;
                                 self.draw_topbar(&stdout)?;
                                 self.draw(&stdout)?;
                             }
@@ -573,7 +583,7 @@ impl Toad {
                             if let Ok(url) = Url::from_str(&buf)
                                 && let Some(page) = self.get_url(url).await
                             {
-                                self.open_page(page);
+                                self.open_page(page).await;
                                 self.draw_topbar(&stdout)?;
                                 self.draw(&stdout)?;
                             }
@@ -853,8 +863,10 @@ impl Toad {
 #[tokio::main]
 async fn main() -> io::Result<()> {
     let mut toad = Toad::new().unwrap();
-    toad.open_page(parse_html(include_str!("home.html")).unwrap());
-    toad.open_page(parse_html(include_str!("test.html")).unwrap());
+    toad.open_page(parse_html(include_str!("home.html")).unwrap())
+        .await;
+    toad.open_page(parse_html(include_str!("test.html")).unwrap())
+        .await;
     toad.tab_index = 0;
     toad.run().await
 }

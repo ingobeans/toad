@@ -1,6 +1,7 @@
 use crossterm::{cursor, event, execute, queue, style, terminal};
 use reqwest::{Client, Url};
 use std::{
+    borrow::Cow,
     collections::HashMap,
     fmt::Debug,
     io::{self, Stdout, Write, stdout},
@@ -383,6 +384,7 @@ struct Toad {
     fetched_assets: HashMap<Url, DataEntry>,
     fetches: Vec<(usize, Url, FetchFuture)>,
     current_page_id: usize,
+    cached_resized_images: Vec<(Url, u16, u16, image::DynamicImage)>,
     prev_buffer: Option<Buffer>,
 }
 impl Toad {
@@ -751,11 +753,25 @@ impl Toad {
                     let w = w / EM;
                     let mut h = h / LH;
 
-                    let image = image.resize_exact(
-                        w as u32,
-                        h as u32 * 2,
-                        image::imageops::FilterType::Nearest,
-                    );
+                    // we need to resize the source image.
+                    // either it has already been resized and cached previously,
+                    // or we have to resize it now and cache it.
+                    let image: Cow<'_, image::DynamicImage> = if let Some((_, _, _, image)) = self
+                        .cached_resized_images
+                        .iter()
+                        .find(|(u, cw, ch, _)| *u == url && *cw == w && *ch == h)
+                    {
+                        Cow::Borrowed(image)
+                    } else {
+                        let image = image.resize_exact(
+                            w as u32,
+                            h as u32 * 2,
+                            image::imageops::FilterType::Nearest,
+                        );
+                        self.cached_resized_images
+                            .push((url.clone(), w, h, image.clone()));
+                        Cow::Owned(image)
+                    };
 
                     let bottom_out = y < tab.scroll_y;
                     let mut image_row_offset = 0;

@@ -59,6 +59,13 @@ pub fn add_panic_handler() {
         std::fs::write("error.txt", a).unwrap();
     }));
 }
+pub fn remove_whitespace(input: &str) -> String {
+    input
+        .replace(" ", "")
+        .replace("\t", "")
+        .replace("\n", "")
+        .replace("\r", "")
+}
 pub fn get_line_input<T: Write>(stdout: &mut T, x: u16, y: u16) -> io::Result<String> {
     terminal::disable_raw_mode()?;
     execute!(

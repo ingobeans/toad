@@ -1,3 +1,4 @@
+use base64::{Engine, prelude::BASE64_STANDARD};
 use crossterm::{cursor, event, execute, queue, style, terminal};
 use reqwest::{Client, Method, Url};
 use std::{
@@ -382,7 +383,25 @@ fn actualize_actual(
 
 const DEBUG_PAGE: &str = include_str!("debug.html");
 
+fn parse_base64_url(url: &Url) -> Option<Vec<u8>> {
+    if url.scheme() == "data"
+        && let Some((_, base64)) = remove_whitespace(url.path()).split_once(',')
+        && let Ok(data) = BASE64_STANDARD.decode(base64)
+    {
+        Some(data)
+    } else {
+        None
+    }
+}
+
 async fn get_data(url: Url, ty: DataType, client: Client) -> Option<DataEntry> {
+    if let DataType::Image = ty
+        && let Some(data) = parse_base64_url(&url)
+    {
+        let image = image::load_from_memory(&data).ok()?;
+        return Some(DataEntry::Image(image));
+    }
+
     let resp = client.get(url).send().await.ok()?;
     match ty {
         DataType::Image => {
@@ -978,4 +997,30 @@ async fn main() -> io::Result<()> {
         .await;
     toad.tab_index = 0;
     toad.run().await
+}
+
+#[cfg(test)]
+mod tests {
+    use reqwest::{Client, Url};
+
+    use crate::{DataEntry, DataType, get_data};
+
+    #[tokio::test]
+    async fn test_base64_urls() {
+        let b64 = "data:image/png;base64, iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8
+        YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAAAYdEVYdFNvZnR3YXJlAFBhaW50Lk5FVCA1LjEuOWxu2j4AAAC2ZVhJZklJKgAIAAAABQAaAQUAAQAAAEoAAAAbAQUAAQAA
+        AFIAAAAoAQMAAQAAAAIAAAAxAQIAEAAAAFoAAABphwQAAQAAAGoAAAAAAAAAYAAAAAEAAABgAAAAAQAAAFBhaW50Lk5FVCA1LjEuOQADAACQBwAEAAAAMDIzMAGgAwAB
+        AAAAAQAAAAWgBAABAAAAlAAAAAAAAAACAAEAAgAEAAAAUjk4AAIABwAEAAAAMDEwMAAAAABMz8BIJY/XoAAAABdJREFUGFdjZPh/4f+lywz/a14y/L8AADvICKjr7H/4
+        AAAAAElFTkSuQmCC";
+        let url = Url::parse(b64).unwrap();
+        let DataEntry::Image(resp) = get_data(url, DataType::Image, Client::new()).await.unwrap()
+        else {
+            panic!()
+        };
+
+        assert_eq!(
+            resp.as_bytes(),
+            [0, 255, 208, 255, 209, 163, 255, 124, 233, 0, 255, 208]
+        );
+    }
 }

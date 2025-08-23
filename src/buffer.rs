@@ -97,6 +97,7 @@ fn rgba_to_color(rgba: [u8; 4]) -> crossterm::style::Color {
 
 pub struct Buffer {
     data: Vec<Cell>,
+    pub interactables: Vec<Option<usize>>,
     width: usize,
     height: usize,
 }
@@ -104,6 +105,7 @@ impl Buffer {
     pub fn empty(width: u16, height: u16) -> Self {
         Self {
             data: vec![Cell::default(); width as usize * height as usize],
+            interactables: vec![None; width as usize * height as usize],
             width: width as _,
             height: height as _,
         }
@@ -171,6 +173,13 @@ impl Buffer {
             ..Default::default()
         };
     }
+    pub fn get_interactable(&self, x: usize, y: usize) -> Option<usize> {
+        if y >= self.height || x >= self.width {
+            None
+        } else {
+            self.interactables[y * self.width + x]
+        }
+    }
     #[expect(clippy::too_many_arguments)]
     pub fn draw_input_box(
         &mut self,
@@ -181,6 +190,7 @@ impl Buffer {
         height: u16,
         text: &str,
         highlighted: bool,
+        interactable: usize,
     ) {
         let mut text_chars = text.chars();
         let background_color = if !highlighted {
@@ -234,10 +244,12 @@ impl Buffer {
                 ..Default::default()
             };
             self.data[index] = cell;
+            self.interactables[index] = Some(interactable);
             if let Some(w) = char.width()
                 && w > 1
             {
                 self.data[index + 1] = Cell { char: ' ', ..cell };
+                self.interactables[index + 1] = Some(interactable);
                 skip = true;
             }
         }
@@ -288,7 +300,14 @@ impl Buffer {
         }
     }
     /// Insert a string somewhere. Newlines not permitted!
-    pub fn draw_str(&mut self, x: u16, y: u16, text: &str, draw_ctx: &ElementDrawContext) {
+    pub fn draw_str(
+        &mut self,
+        x: u16,
+        y: u16,
+        text: &str,
+        draw_ctx: &ElementDrawContext,
+        interactable: Option<usize>,
+    ) {
         let y = y as usize;
         if y >= self.height {
             return;
@@ -299,15 +318,19 @@ impl Buffer {
                 continue;
             }
             let width = char.width().unwrap_or_default();
-            let cell = self.data.get_mut(x + y * self.width).unwrap();
+            let i = x + y * self.width;
+            let cell = self.data.get_mut(i).unwrap();
+            self.interactables[i] = interactable;
             cell.char = char;
             apply_draw_ctx_to_cell(draw_ctx, cell);
 
             // if double width char, make next char empty
             if width > 1 {
-                let cell = self.data.get_mut(x + y * self.width + 1).unwrap();
+                let i = i + 1;
+                let cell = self.data.get_mut(i).unwrap();
                 cell.char = ' ';
                 apply_draw_ctx_to_cell(draw_ctx, cell);
+                self.interactables[i] = interactable;
             }
             x += width;
         }
@@ -324,7 +347,7 @@ mod tests {
     fn test_write_str() {
         let mut buf = Buffer::empty(10, 2);
         let text = "hello";
-        buf.draw_str(0, 0, text, &DEFAULT_DRAW_CTX);
+        buf.draw_str(0, 0, text, &DEFAULT_DRAW_CTX, None);
         for (index, char) in text.chars().enumerate() {
             assert_eq!(buf.data[index].char, char)
         }
@@ -332,10 +355,10 @@ mod tests {
     #[test]
     fn test_wide_chars() {
         let mut buf = Buffer::empty(10, 2);
-        buf.draw_str(0, 0, "aaaaaaaa", &DEFAULT_DRAW_CTX);
+        buf.draw_str(0, 0, "aaaaaaaa", &DEFAULT_DRAW_CTX, None);
         assert_eq!(buf.data[1].char, 'a');
         let text = "🍌";
-        buf.draw_str(0, 0, text, &DEFAULT_DRAW_CTX);
+        buf.draw_str(0, 0, text, &DEFAULT_DRAW_CTX, None);
         assert_eq!(buf.data[1].char, ' ');
     }
     #[test]

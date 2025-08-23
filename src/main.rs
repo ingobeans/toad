@@ -477,18 +477,126 @@ impl Toad {
         self.current_page_id += 1;
         self.tabs.insert(self.tab_index, page);
     }
+    async fn interact(&mut self, mut stdout: &Stdout) -> io::Result<()> {
+        let Some(tab) = self.tabs.get_mut(self.tab_index) else {
+            return Ok(());
+        };
+        let Some(hovered) = &tab.hovered_interactable else {
+            return Ok(());
+        };
+        match &hovered {
+            Interactable::Link(path) => {
+                let options = Url::options().base_url(tab.url.as_ref());
+                let Ok(url) = options.parse(path) else {
+                    return Ok(());
+                };
+                if let Some(page) = self.get_url(url).await {
+                    self.open_page(page).await;
+                }
+
+                self.draw_topbar(&stdout)?;
+                self.draw(&stdout)?;
+            }
+            Interactable::InputText(index, name) => {
+                let Some(cached) = &mut tab.cached_draw else {
+                    return Ok(());
+                };
+                let input = get_line_input(&mut stdout, 0, 2)?;
+                cached.forms[*index].text_fields.insert(name.clone(), input);
+                self.prev_buffer = None;
+                self.draw(&stdout)?;
+            }
+            Interactable::InputSubmit(index) => {
+                let Some(mut cached) = tab.cached_draw.take() else {
+                    return Ok(());
+                };
+                let options = Url::options().base_url(tab.url.as_ref());
+                let a = cached.forms.remove(*index);
+                let Ok(url) = options.parse(&a.action) else {
+                    return Ok(());
+                };
+
+                let Ok(response) = self
+                    .client
+                    .request(a.method, url.clone())
+                    .form(&a.text_fields)
+                    .send()
+                    .await
+                else {
+                    return Ok(());
+                };
+                let Ok(data) = response.text().await else {
+                    return Ok(());
+                };
+                let Some(mut page) = parse_html(&data) else {
+                    return Ok(());
+                };
+                page.url = Some(url);
+                self.tabs.remove(self.tab_index);
+                self.tab_index -= 1;
+                self.open_page(page).await;
+            }
+        }
+
+        Ok(())
+    }
     async fn run(&mut self) -> io::Result<()> {
         add_panic_handler();
         let mut running = true;
         let mut stdout = stdout();
         terminal::enable_raw_mode()?;
-        queue!(stdout, cursor::Hide)?;
+        queue!(stdout, cursor::Hide, event::EnableMouseCapture)?;
         self.draw_topbar(&stdout)?;
         self.draw(&stdout)?;
         while running {
             if event::poll(Duration::from_millis(100))? {
                 let event = event::read()?;
                 if !event.is_key_press() {
+                    if let event::Event::Mouse(mouse_event) = event {
+                        let Some(tab) = self.tabs.get_mut(self.tab_index) else {
+                            continue;
+                        };
+                        let Some(cached) = &tab.cached_draw else {
+                            continue;
+                        };
+                        let Some(prev) = &self.prev_buffer else {
+                            continue;
+                        };
+                        if mouse_event.row < 2 {
+                            continue;
+                        }
+                        let mut needs_redraw = false;
+
+                        let cursor_item = prev.get_interactable(
+                            mouse_event.column as usize,
+                            mouse_event.row as usize - 2,
+                        );
+
+                        let new = cursor_item.map(|f| cached.interactables[f].clone());
+                        if tab.tab_index != cursor_item {
+                            tab.tab_index = cursor_item;
+                            tab.hovered_interactable = new;
+                            needs_redraw = true;
+                        }
+                        match mouse_event.kind {
+                            event::MouseEventKind::ScrollDown => {
+                                tab.scroll_y += 1;
+                                needs_redraw = true;
+                            }
+                            event::MouseEventKind::ScrollUp => {
+                                tab.scroll_y = tab.scroll_y.saturating_sub(1);
+                                needs_redraw = true;
+                            }
+                            event::MouseEventKind::Down(_) => {
+                                self.interact(&stdout).await?;
+                                needs_redraw = false;
+                            }
+                            _ => {}
+                        }
+                        if needs_redraw {
+                            self.draw(&stdout)?;
+                        }
+                    };
                     continue;
                 }
                 let event::Event::Key(key) = event else {
@@ -496,70 +604,12 @@ impl Toad {
                 };
                 match key.code {
                     event::KeyCode::Enter => {
-                        let Some(tab) = self.tabs.get_mut(self.tab_index) else {
-                            continue;
-                        };
-                        let Some(hovered) = &tab.hovered_interactable else {
-                            continue;
-                        };
-                        match &hovered {
-                            Interactable::Link(path) => {
-                                let options = Url::options().base_url(tab.url.as_ref());
-                                let Ok(url) = options.parse(path) else {
-                                    continue;
-                                };
-                                if let Some(page) = self.get_url(url).await {
-                                    self.open_page(page).await;
-                                }
-
-                                self.draw_topbar(&stdout)?;
-                                self.draw(&stdout)?;
-                            }
-                            Interactable::InputText(index, name) => {
-                                let Some(cached) = &mut tab.cached_draw else {
-                                    continue;
-                                };
-                                let input = get_line_input(&mut stdout, 0, 2)?;
-                                cached.forms[*index].text_fields.insert(name.clone(), input);
-                                self.prev_buffer = None;
-                                self.draw(&stdout)?;
-                            }
-                            Interactable::InputSubmit(index) => {
-                                let Some(mut cached) = tab.cached_draw.take() else {
-                                    continue;
-                                };
-                                let options = Url::options().base_url(tab.url.as_ref());
-                                let a = cached.forms.remove(*index);
-                                let Ok(url) = options.parse(&a.action) else {
-                                    continue;
-                                };
-
-                                let Ok(response) = self
-                                    .client
-                                    .request(a.method, url.clone())
-                                    .form(&a.text_fields)
-                                    .send()
-                                    .await
-                                else {
-                                    continue;
-                                };
-                                let Ok(data) = response.text().await else {
-                                    continue;
-                                };
-                                let Some(mut page) = parse_html(&data) else {
-                                    continue;
-                                };
-                                page.url = Some(url);
-                                self.tabs.remove(self.tab_index);
-                                self.tab_index -= 1;
-                                self.open_page(page).await;
-                            }
-                        }
+                        self.interact(&stdout).await?;
                     }
                     event::KeyCode::F(12) => {
                         if let Some(tab) = self.tabs.get(self.tab_index) {
                             let debug = tab.debug_info.clone();
-                            let page_text = sanitize(
+                            let _page_text = sanitize(
                                 &tab.root
                                     .as_ref()
                                     .map(|f| f.print_recursive(0))
@@ -934,6 +984,7 @@ impl Toad {
                             h + image_row_offset,
                             &placeholder_text,
                             hovered,
+                            interactable_index,
                         );
                     }
                 }
@@ -961,7 +1012,7 @@ impl Toad {
                     let x = x + offset_x;
 
                     if let Some(y) = y.checked_sub(tab.scroll_y) {
-                        buffer.draw_str(x, y, &text, &ctx);
+                        buffer.draw_str(x, y, &text, &ctx, parent_interactable);
                     }
                 }
             }

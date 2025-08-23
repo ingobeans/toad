@@ -672,13 +672,12 @@ impl Element {
         } else if self.ty.name == "form"
             && let Some(action) = self.get_attribute("action")
         {
-            let method = if let Some(Some(method)) =
-                self.get_attribute("method").map(|f| parse_method(&f))
-            {
-                method
-            } else {
-                Method::GET
-            };
+            let method =
+                if let Some(Some(method)) = self.get_attribute("method").map(|f| parse_method(f)) {
+                    method
+                } else {
+                    Method::GET
+                };
             // register link as interactable element
             self_form = Some(global_ctx.forms.len());
             global_ctx.forms.push(Form {
@@ -752,66 +751,66 @@ impl Element {
                 actual_height = ActualMeasurement::Pixels(0);
                 global_ctx.unknown_sized_elements[hi] = Some(actual_height);
             }
-            if self.ty.name != "button" || ty == "submit" {
-                if let Some(form) = self_form {
-                    let width = actual_width.get_pixels_lossy().max(10 * EM);
-                    let height = actual_height.get_pixels_lossy().max(3 * LH);
-                    if let Some(text) = match ty.as_str() {
-                        // for any text box type field
-                        "text" | "search" | "email" | "number" | "password" => {
-                            let Some(name) = self.get_attribute("name") else {
-                                return Ok(());
-                            };
-                            self_interactable = Some(global_ctx.interactables.len());
-                            global_ctx
-                                .interactables
-                                .push(Interactable::InputText(form, name.clone()));
-                            Some(
-                                self.get_attribute("value").cloned().unwrap_or(
-                                    self.get_attribute("placeholder")
-                                        .cloned()
-                                        .unwrap_or(String::from("Input...")),
-                                ),
-                            )
-                        }
-                        "submit" => {
-                            self_interactable = Some(global_ctx.interactables.len());
-                            global_ctx
-                                .interactables
-                                .push(Interactable::InputSubmit(form));
+            if (self.ty.name != "button" || ty == "submit")
+                && let Some(form) = self_form
+            {
+                let width = actual_width.get_pixels_lossy().max(10 * EM);
+                let height = actual_height.get_pixels_lossy().max(3 * LH);
+                if let Some(text) = match ty.as_str() {
+                    // for any text box type field
+                    "text" | "search" | "email" | "number" | "password" => {
+                        let Some(name) = self.get_attribute("name") else {
+                            return Ok(());
+                        };
+                        self_interactable = Some(global_ctx.interactables.len());
+                        global_ctx
+                            .interactables
+                            .push(Interactable::InputText(form, name.clone()));
+                        Some(
+                            self.get_attribute("value").cloned().unwrap_or(
+                                self.get_attribute("placeholder")
+                                    .cloned()
+                                    .unwrap_or(String::from("Input...")),
+                            ),
+                        )
+                    }
+                    "submit" => {
+                        self_interactable = Some(global_ctx.interactables.len());
+                        global_ctx
+                            .interactables
+                            .push(Interactable::InputSubmit(form));
 
-                            if let Some(value) = self.get_attribute("value").cloned()
-                                && !value.is_empty()
-                            {
-                                Some(value)
-                            } else {
-                                Some(String::from("Submit"))
-                            }
-                        }
-                        _ => None,
-                    } {
-                        draw_data.content_width = draw_data.content_width.max(width);
-                        draw_data.content_height = draw_data.content_height.max(height);
-                        draw_data.draw_calls.push(DrawCall::DrawInput(
-                            draw_data.x,
-                            draw_data.y,
-                            ActualMeasurement::Pixels(width),
-                            ActualMeasurement::Pixels(height),
-                            self_interactable.unwrap(),
-                            text,
-                        ));
-                        draw_data.last_was_inline_and_sized = false;
-                        draw_data.x += width;
-                        if is_display_block
-                            && let Some(h) = actual_height.get_pixels()
-                            && h > 0
+                        if let Some(value) = self.get_attribute("value").cloned()
+                            && !value.is_empty()
                         {
-                            draw_data.last_item_height = 0;
-                            draw_data.y += h;
-                            draw_data.x = 0;
+                            Some(value)
                         } else {
-                            draw_data.last_item_height = height;
+                            Some(String::from("Submit"))
                         }
+                    }
+                    _ => None,
+                } {
+                    draw_data.content_width = draw_data.content_width.max(width);
+                    draw_data.content_height = draw_data.content_height.max(height);
+                    draw_data.draw_calls.push(DrawCall::DrawInput(
+                        draw_data.x,
+                        draw_data.y,
+                        ActualMeasurement::Pixels(width),
+                        ActualMeasurement::Pixels(height),
+                        self_interactable.unwrap(),
+                        text,
+                    ));
+                    draw_data.last_was_inline_and_sized = false;
+                    draw_data.x += width;
+                    if is_display_block
+                        && let Some(h) = actual_height.get_pixels()
+                        && h > 0
+                    {
+                        draw_data.last_item_height = 0;
+                        draw_data.y += h;
+                        draw_data.x = 0;
+                    } else {
+                        draw_data.last_item_height = height;
                     }
                 }
             }

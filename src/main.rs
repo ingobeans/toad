@@ -494,8 +494,8 @@ impl Toad {
                     self.open_page(page).await;
                 }
 
-                self.draw_topbar(&stdout)?;
-                self.draw(&stdout)?;
+                self.draw_topbar(stdout)?;
+                self.draw(stdout)?;
             }
             Interactable::InputText(index, name) => {
                 let Some(cached) = &mut tab.cached_draw else {
@@ -504,7 +504,7 @@ impl Toad {
                 let input = get_line_input(&mut stdout, 0, 2)?;
                 cached.forms[*index].text_fields.insert(name.clone(), input);
                 self.prev_buffer = None;
-                self.draw(&stdout)?;
+                self.draw(stdout)?;
             }
             Interactable::InputSubmit(index) => {
                 let Some(mut cached) = tab.cached_draw.take() else {
@@ -533,7 +533,7 @@ impl Toad {
                 };
                 page.url = Some(url);
                 self.tabs.remove(self.tab_index);
-                self.tab_index -= 1;
+                self.tab_index = self.tab_index.saturating_sub(1);
                 self.open_page(page).await;
             }
         }

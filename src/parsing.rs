@@ -154,16 +154,15 @@ fn handle_new_element(element: &Element, debug_info: &mut WebpageDebugInfo) {
         && let Some(http_equiv) = element.get_attribute("http-equiv")
         && http_equiv == "refresh"
         && let Some(content) = element.get_attribute("content")
+        && let Some((_, url)) = content.split_once(";")
     {
-        if let Some((_, url)) = content.split_once(";") {
-            debug_info.redirect_to = Some(
-                parse_special(url)
-                    .trim()
-                    .trim_start_matches("url=")
-                    .trim_matches('"')
-                    .to_string(),
-            );
-        }
+        debug_info.redirect_to = Some(
+            parse_special(url)
+                .trim()
+                .trim_start_matches("url=")
+                .trim_matches('"')
+                .to_string(),
+        );
     }
 }
 

@@ -215,6 +215,7 @@ pub static ELEMENT_TYPES: &[ElementType] = &[
         name: "label",
         ..SPAN
     },
+    ElementType { name: "q", ..SPAN },
     ElementType {
         name: "picture",
         ..DEFAULT_ELEMENT_TYPE

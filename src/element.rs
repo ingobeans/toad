@@ -150,6 +150,17 @@ static INPUT: ElementType = ElementType {
     },
     ..DEFAULT_ELEMENT_TYPE
 };
+static CODE: ElementType = ElementType {
+    name: "code",
+    draw_ctx: ElementDrawContext {
+        respect_whitespace: true,
+        width: Specified(Measurement::FitContentWidth),
+        height: Specified(Measurement::FitContentHeight),
+        display: Specified(Display::Inline),
+        ..DEFAULT_DRAW_CTX
+    },
+    ..DEFAULT_ELEMENT_TYPE
+};
 pub static ELEMENT_TYPES: &[ElementType] = &[
     BODY,
     P,
@@ -161,20 +172,14 @@ pub static ELEMENT_TYPES: &[ElementType] = &[
     PRE,
     HTML,
     INPUT,
+    CODE,
+    ElementType {
+        name: "samp",
+        ..CODE
+    },
     ElementType {
         name: "i",
         ..EM_TAG
-    },
-    ElementType {
-        name: "code",
-        draw_ctx: ElementDrawContext {
-            respect_whitespace: true,
-            width: Specified(Measurement::FitContentWidth),
-            height: Specified(Measurement::FitContentHeight),
-            display: Specified(Display::Inline),
-            ..DEFAULT_DRAW_CTX
-        },
-        ..DEFAULT_ELEMENT_TYPE
     },
     ElementType {
         name: "strong",
@@ -191,6 +196,10 @@ pub static ELEMENT_TYPES: &[ElementType] = &[
     },
     ElementType {
         name: "table",
+        ..DIV
+    },
+    ElementType {
+        name: "tbody",
         ..DIV
     },
     ElementType { name: "th", ..DIV },

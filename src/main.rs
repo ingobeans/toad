@@ -472,8 +472,10 @@ impl Toad {
             let Ok(url) = options.parse(&source) else {
                 continue;
             };
-            let handle = tokio::spawn(get_data(url.clone(), ty, self.client.clone()));
-            self.fetches.push((page.indentifier, url, handle));
+            if !self.fetched_assets.contains_key(&url) {
+                let handle = tokio::spawn(get_data(url.clone(), ty, self.client.clone()));
+                self.fetches.push((page.indentifier, url, handle));
+            }
         }
         self.current_page_id += 1;
         self.tabs.insert(self.tab_index, page);
@@ -1049,6 +1051,10 @@ impl Toad {
 #[tokio::main]
 async fn main() -> io::Result<()> {
     let mut toad = Toad::new().unwrap();
+    toad.fetched_assets.insert(
+        Url::parse("toad://toad.png").unwrap(),
+        DataEntry::Image(image::load_from_memory(include_bytes!("toad.png")).unwrap()),
+    );
     toad.open_page(parse_html(include_str!("home.html")).unwrap())
         .await;
     toad.open_page(parse_html(include_str!("test.html")).unwrap())

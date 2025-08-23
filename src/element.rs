@@ -335,7 +335,20 @@ pub static ELEMENT_TYPES: &[ElementType] = &[
         name: "header",
         ..P
     },
-    ElementType { name: "a", ..SPAN },
+    ElementType {
+        name: "a",
+        draw_ctx: ElementDrawContext {
+            width: Specified(Measurement::FitContentWidth),
+            height: Specified(Measurement::FitContentHeight),
+            foreground_color: Some(style::Color::Rgb {
+                r: 0,
+                g: 39,
+                b: 142,
+            }),
+            ..DEFAULT_DRAW_CTX
+        },
+        ..DEFAULT_ELEMENT_TYPE
+    },
     ElementType {
         name: "style",
         stops_parsing: true,

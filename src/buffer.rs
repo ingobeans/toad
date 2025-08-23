@@ -270,7 +270,12 @@ impl Buffer {
                 background_color
             } else {
                 // if not at last row, read rgba of below pixel
-                rgba_to_color(image.get_pixel(column, row + 1).0)
+                let rgb = image.get_pixel(column, row + 1).0;
+                if rgb[3] == 0 {
+                    background_color
+                } else {
+                    rgba_to_color(rgb)
+                }
             };
 
             let cell = Cell {

@@ -666,9 +666,14 @@ impl Element {
                 .push(Interactable::Link(link.clone()));
         } else if self.ty.name == "form"
             && let Some(action) = self.get_attribute("action")
-            && let Some(method) = self.get_attribute("method")
-            && let Some(method) = parse_method(method)
         {
+            let method = if let Some(Some(method)) =
+                self.get_attribute("method").map(|f| parse_method(&f))
+            {
+                method
+            } else {
+                Method::GET
+            };
             // register link as interactable element
             self_form = Some(global_ctx.forms.len());
             global_ctx.forms.push(Form {
@@ -743,14 +748,12 @@ impl Element {
                 global_ctx.unknown_sized_elements[hi] = Some(actual_height);
             }
             if self.ty.name != "button" || ty == "submit" {
-                if actual_width.get_pixels_lossy() > 0
-                    && actual_height.get_pixels_lossy() > 0
-                    && let Some(form) = self_form
-                {
+                if let Some(form) = self_form {
                     let width = actual_width.get_pixels_lossy().max(10 * EM);
                     let height = actual_height.get_pixels_lossy().max(3 * LH);
                     if let Some(text) = match ty.as_str() {
-                        "text" => {
+                        // for any text box type field
+                        "text" | "search" | "email" | "number" | "password" => {
                             let Some(name) = self.get_attribute("name") else {
                                 return Ok(());
                             };

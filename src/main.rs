@@ -601,7 +601,7 @@ impl Toad {
                                 needs_redraw = true;
                             }
                             event::MouseEventKind::Down(_) => {
-                                if tab.hovered_interactable.is_some() {
+                                if mouse_event.row >= 2 {
                                     // handle click interactable
                                     self.interact(&stdout).await?;
                                     needs_redraw = false;

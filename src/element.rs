@@ -804,7 +804,7 @@ impl Element {
                     _ => None,
                 } {
                     draw_data.content_width = draw_data.content_width.max(width);
-                    draw_data.content_height = draw_data.content_height.max(height);
+                    draw_data.content_height = draw_data.content_height.max(draw_data.y + height);
                     draw_data.draw_calls.push(DrawCall::DrawInput(
                         draw_data.x,
                         draw_data.y,
@@ -901,6 +901,9 @@ impl Element {
                 true,
             );
             global_ctx.unknown_sized_elements[index] = Some(actual_height);
+        }
+        if actual_height.get_pixels_lossy() < child_data.content_height {
+            actual_height = ActualMeasurement::Pixels(child_data.content_height)
         }
 
         if !is_body

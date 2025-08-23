@@ -1352,7 +1352,7 @@ dependencies = [
 
 [[package]]
 name = "toad"
-version = "0.10.1"
+version = "0.10.2"
 dependencies = [
  "box_drawing",
  "crossterm",

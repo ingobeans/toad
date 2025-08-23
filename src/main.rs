@@ -739,6 +739,9 @@ impl Toad {
                                 self.tab_index = self.tab_index.saturating_sub(1);
                                 self.draw_topbar(&stdout)?;
                                 self.draw(&stdout)?;
+                                if self.tabs.is_empty() {
+                                    running = false;
+                                }
                             }
                         } else if char == 'g' {
                             self.open_url_bar(&stdout).await?;
@@ -789,7 +792,10 @@ impl Toad {
             }
         }
         terminal::disable_raw_mode()?;
-        execute!(stdout, cursor::Show)?;
+
+        // clean up styling and move cursor to bottom of screen
+        let h = terminal::size()?.1;
+        execute!(stdout, cursor::Show, cursor::MoveTo(0, h - 2))?;
         Ok(())
     }
     fn draw(&mut self, mut stdout: &Stdout) -> io::Result<()> {

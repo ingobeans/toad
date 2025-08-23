@@ -1,5 +1,5 @@
 use crossterm::{cursor, event, execute, queue, style, terminal};
-use reqwest::{Client, Url};
+use reqwest::{Client, Method, Url};
 use std::{
     borrow::Cow,
     collections::HashMap,
@@ -27,7 +27,9 @@ mod utils;
 struct CachedDraw {
     calls: Vec<DrawCall>,
     unknown_sized_elements: Vec<Option<ActualMeasurement>>,
+    interactables: Vec<Interactable>,
     content_height: u16,
+    forms: Vec<Form>,
 }
 
 #[derive(Default)]
@@ -41,7 +43,7 @@ struct Webpage {
     /// Which interactable element we're tabbed to
     tab_index: Option<usize>,
     /// Each draw, update this with whatever interactable element the tab_index points to
-    hovered_interactable: Option<InteractableElement>,
+    hovered_interactable: Option<Interactable>,
     debug_info: WebpageDebugInfo,
     cached_draw: Option<CachedDraw>,
 }
@@ -254,14 +256,23 @@ enum DrawCall {
     Image(u16, u16, ActualMeasurement, ActualMeasurement, String),
     /// X, Y, W, H, Color
     Rect(u16, u16, ActualMeasurement, ActualMeasurement, style::Color),
-    /// X, Y, Text, DrawContext, Parent Interactable, Parent Origin X
+    /// X, Y, Text, DrawContext, Parent Width, Parent Interactable
     Text(
         u16,
         u16,
         String,
         ElementDrawContext,
         ActualMeasurement,
-        Option<InteractableElement>,
+        Option<usize>,
+    ),
+    /// X, Y, W, H, Interactable Index, Placeholder Text
+    DrawInput(
+        u16,
+        u16,
+        ActualMeasurement,
+        ActualMeasurement,
+        usize,
+        String,
     ),
     ClearColor(style::Color),
 }
@@ -271,7 +282,8 @@ impl DrawCall {
             DrawCall::ClearColor(_) => 0,
             DrawCall::Rect(_, _, _, _, _) => 1,
             DrawCall::Image(_, _, _, _, _) => 2,
-            DrawCall::Text(_, _, _, _, _, _) => 3,
+            DrawCall::DrawInput(_, _, _, _, _, _) => 3,
+            DrawCall::Text(_, _, _, _, _, _) => 4,
         }
     }
 }
@@ -279,6 +291,9 @@ impl Debug for DrawCall {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             DrawCall::ClearColor(color) => f.write_str(&format!("Clear({color:?})")),
+            DrawCall::DrawInput(x, y, w, h, _, _) => {
+                f.write_str(&format!("Input({x},{y},{w:?},{h:?})"))
+            }
             DrawCall::Image(x, y, w, h, source) => {
                 f.write_str(&format!("Image({x},{y},{w:?},{h:?},{source:?})"))
             }
@@ -289,22 +304,29 @@ impl Debug for DrawCall {
         }
     }
 }
-#[derive(Clone, PartialEq)]
-enum InteractableType {
-    Link(String),
+
+#[derive(Clone, Default)]
+struct Form {
+    action: String,
+    method: Method,
+    text_fields: HashMap<String, String>,
 }
+
 #[derive(Clone, PartialEq)]
-struct InteractableElement {
-    ty: InteractableType,
-    index: usize,
+enum Interactable {
+    Link(String),
+    InputText(usize, String),
+    InputSubmit(usize),
 }
 struct GlobalDrawContext<'a> {
     /// The global CSS stylesheet
     global_style: &'a Vec<(StyleTarget, ElementDrawContext)>,
     /// Buffer that all elements with unknown sizes are added to, such that any relative size to an unknown can later be evaluated.
     unknown_sized_elements: Vec<Option<ActualMeasurement>>,
-    /// Keeps track of current index for new interactables. Used so all interactables can have a unique ID
-    interactable_index: usize,
+    /// Keeps track of interactable elements
+    interactables: Vec<Interactable>,
+
+    forms: Vec<Form>,
 }
 #[derive(Clone, Debug)]
 enum DataType {
@@ -419,10 +441,9 @@ impl Toad {
         let options = Url::options().base_url(url.as_ref());
         if let Some(redirect) = &page.debug_info.redirect_to
             && let Ok(url) = options.parse(redirect)
+            && let Some(new) = self.get_url(url).await
         {
-            if let Some(new) = self.get_url(url).await {
-                page = new;
-            }
+            page = new;
         }
 
         refresh_style(&mut page, &self.fetched_assets);
@@ -456,14 +477,14 @@ impl Toad {
                 };
                 match key.code {
                     event::KeyCode::Enter => {
-                        let Some(tab) = self.tabs.get(self.tab_index) else {
+                        let Some(tab) = self.tabs.get_mut(self.tab_index) else {
                             continue;
                         };
                         let Some(hovered) = &tab.hovered_interactable else {
                             continue;
                         };
-                        match &hovered.ty {
-                            InteractableType::Link(path) => {
+                        match &hovered {
+                            Interactable::Link(path) => {
                                 let options = Url::options().base_url(tab.url.as_ref());
                                 let Ok(url) = options.parse(path) else {
                                     continue;
@@ -474,6 +495,44 @@ impl Toad {
 
                                 self.draw_topbar(&stdout)?;
                                 self.draw(&stdout)?;
+                            }
+                            Interactable::InputText(index, name) => {
+                                let Some(cached) = &mut tab.cached_draw else {
+                                    continue;
+                                };
+                                let input = get_line_input(&mut stdout, 0, 2)?;
+                                cached.forms[*index].text_fields.insert(name.clone(), input);
+                                self.prev_buffer = None;
+                                self.draw(&stdout)?;
+                            }
+                            Interactable::InputSubmit(index) => {
+                                let Some(mut cached) = tab.cached_draw.take() else {
+                                    continue;
+                                };
+                                let options = Url::options().base_url(tab.url.as_ref());
+                                let a = cached.forms.remove(*index);
+                                let Ok(url) = options.parse(&a.action) else {
+                                    continue;
+                                };
+
+                                let Ok(response) = self
+                                    .client
+                                    .request(a.method, url.clone())
+                                    .form(&a.text_fields)
+                                    .send()
+                                    .await
+                                else {
+                                    continue;
+                                };
+                                let Ok(data) = response.text().await else {
+                                    continue;
+                                };
+                                let Some(mut page) = parse_html(&data) else {
+                                    continue;
+                                };
+                                page.url = Some(url);
+                                self.tabs.remove(self.tab_index);
+                                self.open_page(page).await;
                             }
                         }
                     }
@@ -569,18 +628,8 @@ impl Toad {
                                 self.draw(&stdout)?;
                             }
                         } else if char == 'g' {
-                            terminal::disable_raw_mode()?;
-                            execute!(
-                                stdout,
-                                cursor::MoveTo(0, 1),
-                                terminal::Clear(terminal::ClearType::CurrentLine),
-                                cursor::Show
-                            )?;
-                            let mut buf = String::new();
-                            io::stdin().read_line(&mut buf)?;
-                            terminal::enable_raw_mode()?;
-                            queue!(stdout, cursor::Hide)?;
-                            if let Ok(url) = Url::from_str(&buf)
+                            let input = get_line_input(&mut stdout, 0, 1)?;
+                            if let Ok(url) = Url::from_str(&input)
                                 && let Some(page) = self.get_url(url).await
                             {
                                 self.open_page(page).await;
@@ -690,7 +739,8 @@ impl Toad {
             let mut global_ctx = GlobalDrawContext {
                 unknown_sized_elements: Vec::new(),
                 global_style: &tab.global_style,
-                interactable_index: 0,
+                interactables: Vec::new(),
+                forms: Vec::new(),
             };
             let mut draw_data = DrawData {
                 parent_width: ActualMeasurement::Pixels(screen_width * EM),
@@ -710,6 +760,8 @@ impl Toad {
                 calls: draw_data.draw_calls,
                 unknown_sized_elements: global_ctx.unknown_sized_elements,
                 content_height: draw_data.content_height,
+                interactables: global_ctx.interactables,
+                forms: global_ctx.forms,
             };
             tab.cached_draw = Some(draws.clone());
             draws
@@ -809,12 +861,67 @@ impl Toad {
                         );
                     }
                 }
+                DrawCall::DrawInput(x, y, w, h, interactable_index, mut placeholder_text) => {
+                    let x = x / EM;
+                    let mut y = y / LH;
+
+                    let w = actualize_actual(w, &draws.unknown_sized_elements);
+                    let h = actualize_actual(h, &draws.unknown_sized_elements);
+                    let w = w / EM;
+                    let mut h = h / LH;
+
+                    let bottom_out = y < tab.scroll_y;
+                    let mut image_row_offset = 0;
+
+                    if bottom_out && y + h < tab.scroll_y {
+                        continue;
+                    } else if bottom_out {
+                        let o = y;
+                        y = tab.scroll_y;
+                        h -= y - o;
+                        image_row_offset += (y - o) * 2;
+                    } else if y - tab.scroll_y > screen_height {
+                        continue;
+                    } else if y + h - tab.scroll_y > (screen_height) {
+                        h = (screen_height) + tab.scroll_y - y;
+                    }
+
+                    let hovered = tab.tab_index.is_some_and(|f| f == interactable_index);
+                    let interactable = &draws.interactables[interactable_index];
+                    let (form, name) = match interactable {
+                        Interactable::InputText(form, text) => (form, text.clone()),
+                        Interactable::InputSubmit(form) => (form, String::from("Submit Button")),
+                        _ => {
+                            panic!()
+                        }
+                    };
+                    let form = &draws.forms[*form];
+                    if hovered {
+                        tab.hovered_interactable = Some(interactable.clone());
+                    }
+                    if let Some(value) = form.text_fields.get(&name) {
+                        placeholder_text = value.clone();
+                    }
+
+                    let y = y.saturating_sub(tab.scroll_y);
+                    for i in 0..h {
+                        buffer.draw_input_box(
+                            x,
+                            y + i,
+                            i + image_row_offset,
+                            w,
+                            h + image_row_offset,
+                            &placeholder_text,
+                            hovered,
+                        );
+                    }
+                }
                 DrawCall::Text(x, y, text, mut ctx, parent_width, parent_interactable) => {
                     if let Some(interactable) = parent_interactable
                         && let Some(tab_amt) = tab.tab_index
-                        && tab_amt == interactable.index
+                        && tab_amt == interactable
                     {
-                        tab.hovered_interactable = Some(interactable);
+                        tab.hovered_interactable = Some(draws.interactables[interactable].clone());
                         ctx.background_color = Specified(style::Color::Blue);
                     }
                     let x = x / EM;

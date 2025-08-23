@@ -2,10 +2,11 @@ use std::{collections::HashMap, fmt::Debug, io};
 
 use crate::{
     ActualMeasurement, DEFAULT_DRAW_CTX, Display, DrawCall, ElementDrawContext, ElementTargetInfo,
-    GlobalDrawContext, InteractableElement, InteractableType, Measurement, NonInheritedField::*,
-    TextPrefix, consts::*, css, parsing::parse_special,
+    Form, GlobalDrawContext, Interactable, Measurement, NonInheritedField::*, TextPrefix,
+    consts::*, css, parsing::parse_special,
 };
 use crossterm::style;
+use reqwest::Method;
 use unicode_width::UnicodeWidthStr;
 
 const RED: style::Color = style::Color::Red;
@@ -137,6 +138,18 @@ static EM_TAG: ElementType = ElementType {
     },
     ..SPAN
 };
+static INPUT: ElementType = ElementType {
+    name: "input",
+    void_element: true,
+    draw_ctx: ElementDrawContext {
+        width: Specified(Measurement::Pixels(20 * EM)),
+        height: Specified(Measurement::Pixels(3 * LH)),
+        background_color: Specified(style::Color::Grey),
+        display: Specified(Display::Block),
+        ..DEFAULT_DRAW_CTX
+    },
+    ..DEFAULT_ELEMENT_TYPE
+};
 pub static ELEMENT_TYPES: &[ElementType] = &[
     BODY,
     P,
@@ -147,6 +160,7 @@ pub static ELEMENT_TYPES: &[ElementType] = &[
     EM_TAG,
     PRE,
     HTML,
+    INPUT,
     ElementType {
         name: "i",
         ..EM_TAG
@@ -211,8 +225,14 @@ pub static ELEMENT_TYPES: &[ElementType] = &[
         ..DEFAULT_ELEMENT_TYPE
     },
     ElementType {
+        name: "svg",
+        stops_parsing: true,
+        ..DEFAULT_ELEMENT_TYPE
+    },
+    ElementType {
         name: "button",
-        ..SPAN
+        void_element: false,
+        ..INPUT
     },
     ElementType {
         name: "figcaption",
@@ -267,11 +287,6 @@ pub static ELEMENT_TYPES: &[ElementType] = &[
             display: Specified(Display::Block),
             ..DEFAULT_DRAW_CTX
         },
-        ..DEFAULT_ELEMENT_TYPE
-    },
-    ElementType {
-        name: "input",
-        void_element: true,
         ..DEFAULT_ELEMENT_TYPE
     },
     ElementType {
@@ -424,6 +439,13 @@ fn actualize(
         }
     }
 }
+fn parse_method(method: &str) -> Option<Method> {
+    match method {
+        "post" => Some(Method::POST),
+        "get" => Some(Method::GET),
+        _ => None,
+    }
+}
 #[derive(Default, Clone)]
 pub struct DrawData {
     pub draw_calls: Vec<DrawCall>,
@@ -433,7 +455,8 @@ pub struct DrawData {
     pub parent_height: ActualMeasurement,
     pub x: u16,
     pub y: u16,
-    pub parent_interactable: Option<InteractableElement>,
+    pub parent_interactable: Option<usize>,
+    pub parent_form: Option<usize>,
     pub ancestors_target_info: Vec<ElementTargetInfo>,
     pub last_item_height: u16,
     /// Condition set to true if the previous element drawn with this context was both `display: inline`,
@@ -585,7 +608,8 @@ impl Element {
             draw_data.y += draw_data.last_item_height.max(LH);
             draw_data.x = 0;
         }
-        let mut self_interactable = draw_data.parent_interactable.clone();
+        let mut self_interactable = draw_data.parent_interactable;
+        let mut self_form = draw_data.parent_form;
 
         if self.ty.name == "node" {
             if let Some(text) = &self.text
@@ -613,7 +637,7 @@ impl Element {
                         line,
                         style,
                         draw_data.parent_width,
-                        draw_data.parent_interactable.clone(),
+                        draw_data.parent_interactable,
                     ));
                     draw_data.x += len * EM;
                     draw_data.content_width = draw_data.content_width.max(draw_data.x);
@@ -631,11 +655,22 @@ impl Element {
             && let Some(link) = self.get_attribute("href")
         {
             // register link as interactable element
-            self_interactable = Some(InteractableElement {
-                ty: InteractableType::Link(link.clone()),
-                index: global_ctx.interactable_index,
+            self_interactable = Some(global_ctx.interactables.len());
+            global_ctx
+                .interactables
+                .push(Interactable::Link(link.clone()));
+        } else if self.ty.name == "form"
+            && let Some(action) = self.get_attribute("action")
+            && let Some(method) = self.get_attribute("method")
+            && let Some(method) = parse_method(method)
+        {
+            // register link as interactable element
+            self_form = Some(global_ctx.forms.len());
+            global_ctx.forms.push(Form {
+                action: action.clone(),
+                method,
+                ..Default::default()
             });
-            global_ctx.interactable_index += 1;
         }
 
         // actualize width and height
@@ -691,6 +726,74 @@ impl Element {
                 draw_data.x = 0;
             }
             return Ok(());
+        } else if (self.ty.name == "input" || self.ty.name == "button")
+            && let Some(ty) = self.get_attribute("type")
+        {
+            if let ActualMeasurement::Waiting(wi) = actual_width {
+                actual_width = ActualMeasurement::Pixels(0);
+                global_ctx.unknown_sized_elements[wi] = Some(actual_width);
+            }
+            if let ActualMeasurement::Waiting(hi) = actual_height {
+                actual_height = ActualMeasurement::Pixels(0);
+                global_ctx.unknown_sized_elements[hi] = Some(actual_height);
+            }
+            if self.ty.name != "button" || ty == "submit" {
+                if actual_width.get_pixels_lossy() > 0
+                    && actual_height.get_pixels_lossy() > 0
+                    && let Some(form) = self_form
+                {
+                    let width = actual_width.get_pixels_lossy().max(10 * EM);
+                    let height = actual_height.get_pixels_lossy().max(3 * LH);
+                    if let Some(text) = match ty.as_str() {
+                        "text" => {
+                            let Some(name) = self.get_attribute("name") else {
+                                return Ok(());
+                            };
+                            self_interactable = Some(global_ctx.interactables.len());
+                            global_ctx
+                                .interactables
+                                .push(Interactable::InputText(form, name.clone()));
+                            Some(
+                                self.get_attribute("value").cloned().unwrap_or(
+                                    self.get_attribute("placeholder")
+                                        .cloned()
+                                        .unwrap_or(String::from("Input...")),
+                                ),
+                            )
+                        }
+                        "submit" => {
+                            self_interactable = Some(global_ctx.interactables.len());
+                            global_ctx
+                                .interactables
+                                .push(Interactable::InputSubmit(form));
+                            Some(String::from("Submit"))
+                        }
+                        _ => None,
+                    } {
+                        draw_data.content_width = draw_data.content_width.max(width);
+                        draw_data.content_height = draw_data.content_height.max(height);
+                        draw_data.draw_calls.push(DrawCall::DrawInput(
+                            draw_data.x,
+                            draw_data.y,
+                            ActualMeasurement::Pixels(width),
+                            ActualMeasurement::Pixels(height),
+                            self_interactable.unwrap(),
+                            text,
+                        ));
+                    }
+                }
+
+                draw_data.last_was_inline_and_sized = false;
+                draw_data.x += actual_width.get_pixels_lossy();
+                if is_display_block
+                    && let Some(h) = actual_height.get_pixels()
+                    && h > 0
+                {
+                    draw_data.y += h;
+                    draw_data.x = 0;
+                }
+            }
+            return Ok(());
         }
 
         draw_data.content_width = draw_data.content_width.max(actual_width.get_pixels_lossy());
@@ -712,6 +815,7 @@ impl Element {
             parent_interactable: self_interactable,
             ancestors_target_info: draw_data_ancestor_info,
             last_was_inline_and_sized: draw_data.last_was_inline_and_sized,
+            parent_form: self_form,
             ..Default::default()
         };
         for child in self.children.iter() {
@@ -737,7 +841,11 @@ impl Element {
                     *x += draw_data.x;
                     *y += draw_data.y;
                 }
-                _ => {}
+                DrawCall::DrawInput(x, y, _, _, _, _) => {
+                    *x += draw_data.x;
+                    *y += draw_data.y;
+                }
+                DrawCall::ClearColor(_) => {}
             }
         }
 

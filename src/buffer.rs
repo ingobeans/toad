@@ -1,4 +1,7 @@
-use std::io::{self, Write};
+use std::{
+    borrow::Cow,
+    io::{self, Write},
+};
 
 use crossterm::{
     cursor, queue,
@@ -7,7 +10,7 @@ use crossterm::{
 use image::{DynamicImage, GenericImageView};
 use unicode_width::UnicodeWidthChar;
 
-use crate::{ElementDrawContext, NonInheritedField};
+use crate::{ElementDrawContext, NonInheritedField, consts::*};
 
 #[derive(Clone, Copy)]
 struct Cell {
@@ -63,7 +66,7 @@ impl Default for Cell {
     fn default() -> Self {
         Self {
             char: ' ',
-            foreground_color: Color::Black,
+            foreground_color: DEFAULT_FOREGROUND_COLOR,
             background_color: Color::Reset,
             bold: false,
             italics: false,
@@ -144,6 +147,7 @@ impl Buffer {
             }
 
             let char = cell.char;
+            assert_ne!(char, '\n');
             cell.format_stdout(stdout, &mut last)?;
             write!(stdout, "{}", char)?;
             let width = char.width().unwrap_or_default();
@@ -166,6 +170,77 @@ impl Buffer {
             background_color: color,
             ..Default::default()
         };
+    }
+    #[expect(clippy::too_many_arguments)]
+    pub fn draw_input_box(
+        &mut self,
+        x: u16,
+        y: u16,
+        row: u16,
+        width: u16,
+        height: u16,
+        text: &str,
+        highlighted: bool,
+    ) {
+        let mut text_chars = text.chars();
+        let background_color = if !highlighted {
+            Color::Grey
+        } else {
+            Color::Blue
+        };
+        let border_color = Color::Black;
+        let mut skip = false;
+        for column in 0..width {
+            if skip {
+                skip = false;
+                continue;
+            }
+            let index = column as usize + x as usize + y as usize * self.width;
+            let char: Cow<str> = if row == 0 {
+                if column == 0 {
+                    Cow::Borrowed(box_drawing::double::DOWN_RIGHT)
+                } else if column == width - 1 {
+                    Cow::Borrowed(box_drawing::double::DOWN_LEFT)
+                } else {
+                    Cow::Borrowed(box_drawing::double::HORIZONTAL)
+                }
+            } else if row == height - 1 {
+                if column == 0 {
+                    Cow::Borrowed(box_drawing::double::UP_RIGHT)
+                } else if column == width - 1 {
+                    Cow::Borrowed(box_drawing::double::UP_LEFT)
+                } else {
+                    Cow::Borrowed(box_drawing::double::HORIZONTAL)
+                }
+            } else if column == 0 || column == width - 1 {
+                Cow::Borrowed(box_drawing::double::VERTICAL)
+            } else if row == 1
+                && let Some(char) = text_chars.next()
+            {
+                if column < width - 3 {
+                    Cow::Owned(char.to_string())
+                } else {
+                    Cow::Borrowed(".")
+                }
+            } else {
+                Cow::Borrowed(" ")
+            };
+            let char = char.chars().next().unwrap();
+
+            let cell = Cell {
+                char,
+                background_color,
+                foreground_color: border_color,
+                ..Default::default()
+            };
+            self.data[index] = cell;
+            if let Some(w) = char.width()
+                && w > 1
+            {
+                self.data[index + 1] = Cell { char: ' ', ..cell };
+                skip = true;
+            }
+        }
     }
     pub fn draw_img_row(&mut self, x: u16, y: u16, row: u32, image: &DynamicImage) {
         for column in 0..image.width() {

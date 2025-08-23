@@ -1,6 +1,6 @@
-use std::io::stdout;
+use std::io::{self, Write, stdout};
 
-use crossterm::{cursor, execute, terminal};
+use crossterm::{cursor, execute, queue, terminal};
 
 pub fn pop_until<T: PartialEq>(a: &mut Vec<T>, b: &T) -> Vec<T> {
     let mut popped = Vec::new();
@@ -58,4 +58,18 @@ pub fn add_panic_handler() {
         let a = format!("TOAD panicked at: {:?}\n\nError: {:?}", f.location(), p);
         std::fs::write("error.txt", a).unwrap();
     }));
+}
+pub fn get_line_input<T: Write>(stdout: &mut T, x: u16, y: u16) -> io::Result<String> {
+    terminal::disable_raw_mode()?;
+    execute!(
+        stdout,
+        cursor::MoveTo(x, y),
+        terminal::Clear(terminal::ClearType::CurrentLine),
+        cursor::Show
+    )?;
+    let mut buf = String::new();
+    io::stdin().read_line(&mut buf)?;
+    terminal::enable_raw_mode()?;
+    queue!(stdout, cursor::Hide)?;
+    Ok(buf.trim().to_string())
 }

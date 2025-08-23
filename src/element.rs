@@ -190,6 +190,13 @@ pub static ELEMENT_TYPES: &[ElementType] = &[
         ..DIV
     },
     ElementType {
+        name: "table",
+        ..DIV
+    },
+    ElementType { name: "th", ..DIV },
+    ElementType { name: "tr", ..DIV },
+    ElementType { name: "td", ..SPAN },
+    ElementType {
         name: "cite",
         ..EM_TAG
     },

@@ -588,7 +588,7 @@ impl Element {
             }
             if let Some(Ok(height)) = self.get_attribute("height").map(|f| f.parse::<u16>()) {
                 // i legitimately do not know why this needs to be divided by two
-                style.height = Specified(Measurement::Pixels(height / 2));
+                style.height = Specified(Measurement::Pixels(height));
             }
         }
 

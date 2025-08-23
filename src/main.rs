@@ -543,6 +543,17 @@ impl Toad {
 
         Ok(())
     }
+    async fn open_url_bar(&mut self, mut stdout: &Stdout) -> io::Result<()> {
+        let input = get_line_input(&mut stdout, 0, 1)?;
+        if let Ok(url) = Url::from_str(&input)
+            && let Some(page) = self.get_url(url).await
+        {
+            self.open_page(page).await;
+            self.draw_topbar(&stdout)?;
+            self.draw(&stdout)?;
+        }
+        Ok(())
+    }
     async fn run(&mut self) -> io::Result<()> {
         add_panic_handler();
         let mut running = true;
@@ -565,21 +576,20 @@ impl Toad {
                         let Some(prev) = &self.prev_buffer else {
                             continue;
                         };
-                        if mouse_event.row < 2 {
-                            continue;
-                        }
                         let mut needs_redraw = false;
 
-                        let cursor_item = prev.get_interactable(
-                            mouse_event.column as usize,
-                            mouse_event.row as usize - 2,
-                        );
+                        if mouse_event.row >= 2 {
+                            let cursor_item = prev.get_interactable(
+                                mouse_event.column as usize,
+                                mouse_event.row as usize - 2,
+                            );
 
-                        let new = cursor_item.map(|f| cached.interactables[f].clone());
-                        if tab.tab_index != cursor_item {
-                            tab.tab_index = cursor_item;
-                            tab.hovered_interactable = new;
-                            needs_redraw = true;
+                            let new = cursor_item.map(|f| cached.interactables[f].clone());
+                            if tab.tab_index != cursor_item {
+                                tab.tab_index = cursor_item;
+                                tab.hovered_interactable = new;
+                                needs_redraw = true;
+                            }
                         }
                         match mouse_event.kind {
                             event::MouseEventKind::ScrollDown => {
@@ -591,8 +601,37 @@ impl Toad {
                                 needs_redraw = true;
                             }
                             event::MouseEventKind::Down(_) => {
-                                self.interact(&stdout).await?;
-                                needs_redraw = false;
+                                if tab.hovered_interactable.is_some() {
+                                    // handle click interactable
+                                    self.interact(&stdout).await?;
+                                    needs_redraw = false;
+                                } else if mouse_event.row == 0 {
+                                    // click tab bar
+                                    let mouse_x = mouse_event.column as usize;
+                                    let mut x = 0;
+                                    for (i, t) in self.tabs.iter().enumerate() {
+                                        let text = if let Some(title) = &t.title {
+                                            title.trim()
+                                        } else if let Some(url) = &t.url {
+                                            &url.to_string()
+                                        } else {
+                                            "untitled"
+                                        };
+                                        let old = x;
+                                        x += text.width() + 3;
+                                        if (old..x).contains(&mouse_x) {
+                                            self.tab_index = i;
+                                            self.draw_topbar(&stdout)?;
+                                            needs_redraw = true;
+                                            break;
+                                        }
+                                    }
+                                } else if mouse_event.row == 1 {
+                                    // click url bar
+                                    self.open_url_bar(&stdout).await?;
+                                    self.draw_topbar(&stdout)?;
+                                    needs_redraw = true;
+                                }
                             }
                             _ => {}
                         }
@@ -702,14 +741,7 @@ impl Toad {
                                 self.draw(&stdout)?;
                             }
                         } else if char == 'g' {
-                            let input = get_line_input(&mut stdout, 0, 1)?;
-                            if let Ok(url) = Url::from_str(&input)
-                                && let Some(page) = self.get_url(url).await
-                            {
-                                self.open_page(page).await;
-                                self.draw_topbar(&stdout)?;
-                                self.draw(&stdout)?;
-                            }
+                            self.open_url_bar(&stdout).await?;
                         }
                     }
                     _ => {}

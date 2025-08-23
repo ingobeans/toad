@@ -10,6 +10,7 @@ use std::{
     time::Duration,
 };
 use tokio::task::JoinHandle;
+use unicode_width::UnicodeWidthStr;
 
 use buffer::*;
 use consts::*;
@@ -762,6 +763,7 @@ impl Toad {
         stdout.flush()
     }
     fn draw_topbar(&self, mut stdout: &Stdout) -> io::Result<()> {
+        let screen_width = terminal::size()?.0 as usize;
         queue!(
             stdout,
             cursor::MoveTo(0, 0),
@@ -769,6 +771,7 @@ impl Toad {
             style::SetForegroundColor(style::Color::Black),
             terminal::Clear(terminal::ClearType::CurrentLine),
         )?;
+        let mut x = 0;
         for (index, tab) in self.tabs.iter().enumerate() {
             let text = if let Some(title) = &tab.title {
                 title.trim()
@@ -777,6 +780,10 @@ impl Toad {
             } else {
                 "untitled"
             };
+            x += text.width() + 3;
+            if x >= screen_width {
+                break;
+            }
             if index == self.tab_index {
                 queue!(stdout, style::SetBackgroundColor(style::Color::White))?;
                 print!("[{text}]");

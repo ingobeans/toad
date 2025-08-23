@@ -532,6 +532,7 @@ impl Toad {
                                 };
                                 page.url = Some(url);
                                 self.tabs.remove(self.tab_index);
+                                self.tab_index -= 1;
                                 self.open_page(page).await;
                             }
                         }
@@ -553,7 +554,8 @@ impl Toad {
                             let html = DEBUG_PAGE
                                 .replace("{DEBUGINFO}", &sanitize(&format!("{:?}", debug)))
                                 .replace("{STYLE_TARGETS}", &sanitize(&s))
-                                .replace("{PAGE}", &page_text);
+                               // .replace("{PAGE}", &page_text);
+                               ;
                             if let Some(page) = parse_html(&html) {
                                 self.open_page(page).await;
                                 self.draw_topbar(&stdout)?;

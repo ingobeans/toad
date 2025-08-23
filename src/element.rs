@@ -145,7 +145,7 @@ static INPUT: ElementType = ElementType {
         width: Specified(Measurement::Pixels(20 * EM)),
         height: Specified(Measurement::Pixels(3 * LH)),
         background_color: Specified(style::Color::Grey),
-        display: Specified(Display::Block),
+        display: Specified(Display::Inline),
         ..DEFAULT_DRAW_CTX
     },
     ..DEFAULT_ELEMENT_TYPE
@@ -179,6 +179,11 @@ pub static ELEMENT_TYPES: &[ElementType] = &[
     ElementType {
         name: "strong",
         ..B
+    },
+    ElementType {
+        name: "select",
+        stops_parsing: true,
+        ..DEFAULT_ELEMENT_TYPE
     },
     ElementType {
         name: "section",
@@ -774,7 +779,14 @@ impl Element {
                             global_ctx
                                 .interactables
                                 .push(Interactable::InputSubmit(form));
-                            Some(String::from("Submit"))
+
+                            if let Some(value) = self.get_attribute("value").cloned()
+                                && !value.is_empty()
+                            {
+                                Some(value)
+                            } else {
+                                Some(String::from("Submit"))
+                            }
                         }
                         _ => None,
                     } {
@@ -788,17 +800,19 @@ impl Element {
                             self_interactable.unwrap(),
                             text,
                         ));
+                        draw_data.last_was_inline_and_sized = false;
+                        draw_data.x += width;
+                        if is_display_block
+                            && let Some(h) = actual_height.get_pixels()
+                            && h > 0
+                        {
+                            draw_data.last_item_height = 0;
+                            draw_data.y += h;
+                            draw_data.x = 0;
+                        } else {
+                            draw_data.last_item_height = height;
+                        }
                     }
-                }
-
-                draw_data.last_was_inline_and_sized = false;
-                draw_data.x += actual_width.get_pixels_lossy();
-                if is_display_block
-                    && let Some(h) = actual_height.get_pixels()
-                    && h > 0
-                {
-                    draw_data.y += h;
-                    draw_data.x = 0;
                 }
             }
             return Ok(());

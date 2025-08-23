@@ -10,7 +10,7 @@ TOAD does not support JavaScript, and never will. It does however, to a limited 
 Most pages will probably not look good in TOAD, or even load, so here's a list of tested websites that (mostly) work:
 - [SerenityOS](https://serenityos.org/)
 - [DuckDuckGo](https://html.duckduckgo.com/html/) (searching works but the homescreen is kind of jank)
-- [Wikipedia](https://en.wikipedia.org/wiki/Web_browser) (not the homepage)
+- [Wikipedia](https://en.wikipedia.org/wiki/%22Hello,_World!%22_program) (not the homepage)
 
 <img width="1409" height="575" alt="screenshot" src="https://github.com/user-attachments/assets/f45f01b8-62a1-4cda-97e7-de759985e1f5" />
 

@@ -66,17 +66,29 @@ pub fn remove_whitespace(input: &str) -> String {
         .replace("\n", "")
         .replace("\r", "")
 }
-pub fn get_line_input<T: Write>(stdout: &mut T, x: u16, y: u16) -> io::Result<String> {
-    terminal::disable_raw_mode()?;
+pub fn get_line_input<T: Write>(
+    stdout: &mut T,
+    x: u16,
+    y: u16,
+    initial: Option<&str>,
+) -> Option<String> {
+    terminal::disable_raw_mode().ok()?;
     execute!(
         stdout,
         cursor::MoveTo(x, y),
         terminal::Clear(terminal::ClearType::CurrentLine),
         cursor::Show
-    )?;
-    let mut buf = String::new();
-    io::stdin().read_line(&mut buf)?;
-    terminal::enable_raw_mode()?;
-    queue!(stdout, cursor::Hide)?;
-    Ok(buf.trim().to_string())
+    )
+    .ok()?;
+    let mut editor = rustyline::DefaultEditor::new().ok()?;
+    let resp = if let Some(initial) = initial {
+        editor.readline_with_initial("", (initial, "")).ok()
+    } else {
+        editor.readline("").ok()
+    };
+
+    terminal::enable_raw_mode().ok()?;
+    queue!(stdout, cursor::Hide).ok()?;
+
+    resp
 }

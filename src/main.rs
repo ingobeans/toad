@@ -504,7 +504,17 @@ impl Toad {
                 let Some(cached) = &mut tab.cached_draw else {
                     return Ok(());
                 };
-                let input = get_line_input(&mut stdout, 0, 2)?;
+                let Some(input) = get_line_input(
+                    &mut stdout,
+                    0,
+                    2,
+                    cached.forms[*index]
+                        .text_fields
+                        .get(name)
+                        .map(|x| x.as_str()),
+                ) else {
+                    return Ok(());
+                };
                 cached.forms[*index].text_fields.insert(name.clone(), input);
                 self.prev_buffer = None;
                 self.draw(stdout)?;
@@ -541,17 +551,6 @@ impl Toad {
             }
         }
 
-        Ok(())
-    }
-    async fn open_url_bar(&mut self, mut stdout: &Stdout) -> io::Result<()> {
-        let input = get_line_input(&mut stdout, 0, 1)?;
-        if let Ok(url) = Url::from_str(&input)
-            && let Some(page) = self.get_url(url).await
-        {
-            self.open_page(page).await;
-            self.draw_topbar(&stdout)?;
-            self.draw(&stdout)?;
-        }
         Ok(())
     }
     async fn run(&mut self) -> io::Result<()> {
@@ -628,7 +627,25 @@ impl Toad {
                                     }
                                 } else if mouse_event.row == 1 {
                                     // click url bar
-                                    self.open_url_bar(&stdout).await?;
+
+                                    let input = get_line_input(
+                                        &mut stdout,
+                                        0,
+                                        1,
+                                        tab.url
+                                            .clone()
+                                            .map(|f| f.to_string())
+                                            .as_ref()
+                                            .map(|x| x.as_str()),
+                                    );
+                                    if let Some(input) = input
+                                        && let Ok(url) = Url::from_str(&input)
+                                        && let Some(page) = self.get_url(url).await
+                                    {
+                                        self.tabs.remove(self.tab_index);
+                                        self.tab_index = self.tab_index.saturating_sub(1);
+                                        self.open_page(page).await;
+                                    }
                                     self.draw_topbar(&stdout)?;
                                     needs_redraw = true;
                                 }
@@ -744,7 +761,15 @@ impl Toad {
                                 }
                             }
                         } else if char == 'g' {
-                            self.open_url_bar(&stdout).await?;
+                            let input = get_line_input(&mut stdout, 0, 1, Some("https://"));
+                            if let Some(input) = input
+                                && let Ok(url) = Url::from_str(&input)
+                                && let Some(page) = self.get_url(url).await
+                            {
+                                self.open_page(page).await;
+                                self.draw_topbar(&stdout)?;
+                                self.draw(&stdout)?;
+                            }
                         }
                     }
                     _ => {}

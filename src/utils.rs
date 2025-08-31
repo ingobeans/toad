@@ -1,4 +1,4 @@
-use std::io::{self, Write, stdout};
+use std::io::{Write, stdout};
 
 use crossterm::{cursor, execute, queue, terminal};
 

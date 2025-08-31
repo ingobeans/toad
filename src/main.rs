@@ -632,11 +632,7 @@ impl Toad {
                                         &mut stdout,
                                         0,
                                         1,
-                                        tab.url
-                                            .clone()
-                                            .map(|f| f.to_string())
-                                            .as_ref()
-                                            .map(|x| x.as_str()),
+                                        tab.url.clone().map(|f| f.to_string()).as_deref(),
                                     );
                                     if let Some(input) = input
                                         && let Ok(url) = Url::from_str(&input)

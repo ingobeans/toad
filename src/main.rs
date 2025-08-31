@@ -49,6 +49,17 @@ struct Webpage {
     debug_info: WebpageDebugInfo,
     cached_draw: Option<CachedDraw>,
 }
+impl Webpage {
+    fn get_title(&self) -> String {
+        if let Some(title) = self.title.clone() {
+            return title;
+        }
+        if let Some(url) = self.url.clone() {
+            return url.to_string();
+        }
+        String::from("unknown")
+    }
+}
 
 #[derive(Clone, Copy, PartialEq)]
 enum TextAlignment {
@@ -605,21 +616,36 @@ impl Toad {
                                     self.interact(&stdout).await?;
                                     needs_redraw = false;
                                 } else if mouse_event.row == 0 {
+                                    let screen_width = terminal::size()?.0 as usize;
+                                    let mut current_tab_width =
+                                        self.tabs[self.tab_index].get_title().trim().width() + 3;
+                                    if current_tab_width > screen_width - 3 {
+                                        current_tab_width = screen_width - 3;
+                                    }
+                                    let other_space = screen_width - current_tab_width;
+                                    let max_invidivual_tab_width = if self.tabs.len() <= 1 {
+                                        0
+                                    } else {
+                                        other_space / (self.tabs.len() - 1)
+                                    };
                                     // click tab bar
                                     let mouse_x = mouse_event.column as usize;
                                     let mut x = 0;
-                                    for (i, t) in self.tabs.iter().enumerate() {
-                                        let text = if let Some(title) = &t.title {
-                                            title.trim()
-                                        } else if let Some(url) = &t.url {
-                                            &url.to_string()
+                                    for (index, tab) in self.tabs.iter().enumerate() {
+                                        let text = tab.get_title().trim().to_string();
+                                        let w = text.width();
+                                        let width = if index == self.tab_index {
+                                            current_tab_width - 3
                                         } else {
-                                            "untitled"
+                                            if max_invidivual_tab_width <= 3 {
+                                                continue;
+                                            }
+                                            w.min(max_invidivual_tab_width - 3)
                                         };
                                         let old = x;
-                                        x += text.width() + 3;
+                                        x += width + 3;
                                         if (old..x).contains(&mouse_x) {
-                                            self.tab_index = i;
+                                            self.tab_index = index;
                                             self.draw_topbar(&stdout)?;
                                             needs_redraw = true;
                                             break;
@@ -825,6 +851,17 @@ impl Toad {
     }
     fn draw_topbar(&self, mut stdout: &Stdout) -> io::Result<()> {
         let screen_width = terminal::size()?.0 as usize;
+        let mut current_tab_width = self.tabs[self.tab_index].get_title().trim().width() + 3;
+        if current_tab_width > screen_width - 3 {
+            current_tab_width = screen_width - 3;
+        }
+        let other_space = screen_width - current_tab_width;
+        let max_invidivual_tab_width = if self.tabs.len() <= 1 {
+            0
+        } else {
+            other_space / (self.tabs.len() - 1)
+        };
+
         queue!(
             stdout,
             cursor::MoveTo(0, 0),
@@ -832,18 +869,20 @@ impl Toad {
             style::SetForegroundColor(style::Color::Black),
             terminal::Clear(terminal::ClearType::CurrentLine),
         )?;
-        let mut x = 0;
         for (index, tab) in self.tabs.iter().enumerate() {
-            let text = if let Some(title) = &tab.title {
-                title.trim()
-            } else if let Some(url) = &tab.url {
-                &url.to_string()
+            let mut text = tab.get_title().trim().to_string();
+            let w = text.width();
+            if index == self.tab_index {
+                if w > current_tab_width - 3 {
+                    text = text[..current_tab_width - 3].to_string();
+                }
             } else {
-                "untitled"
-            };
-            x += text.width() + 3;
-            if x >= screen_width {
-                break;
+                if max_invidivual_tab_width <= 3 {
+                    continue;
+                }
+                if w > max_invidivual_tab_width - 3 {
+                    text = text[..max_invidivual_tab_width - 3].to_string();
+                }
             }
             if index == self.tab_index {
                 queue!(stdout, style::SetBackgroundColor(style::Color::White))?;
@@ -857,7 +896,12 @@ impl Toad {
         queue!(stdout, cursor::MoveToNextLine(1))?;
         queue!(stdout, terminal::Clear(terminal::ClearType::CurrentLine))?;
         if let Some(Some(url)) = self.tabs.get(self.tab_index).map(|f| &f.url) {
-            print!("{url}")
+            let mut text = url.to_string().trim().to_string();
+            let w = text.width();
+            if w > screen_width {
+                text = text[..screen_width].to_string();
+            }
+            print!("{text}")
         }
         queue!(stdout, style::ResetColor)?;
         stdout.flush()

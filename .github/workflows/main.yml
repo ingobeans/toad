@@ -1,4 +1,4 @@
-name: Build wasm and deploy to pages
+name: Publish release
 
 on: workflow_dispatch
 

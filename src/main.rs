@@ -777,8 +777,7 @@ impl Toad {
                                 self.tabs.remove(self.tab_index);
                                 self.tab_index = self.tab_index.saturating_sub(1);
                                 if self.tabs.is_empty() {
-                                    running = false;
-                                    return;
+                                    break;
                                 }
                                 self.draw_topbar(&stdout)?;
                                 self.draw(&stdout)?;

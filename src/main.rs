@@ -776,11 +776,12 @@ impl Toad {
                             if self.tab_index < self.tabs.len() {
                                 self.tabs.remove(self.tab_index);
                                 self.tab_index = self.tab_index.saturating_sub(1);
-                                self.draw_topbar(&stdout)?;
-                                self.draw(&stdout)?;
                                 if self.tabs.is_empty() {
                                     running = false;
+                                    return;
                                 }
+                                self.draw_topbar(&stdout)?;
+                                self.draw(&stdout)?;
                             }
                         } else if char == 'g' {
                             let input = get_line_input(&mut stdout, 0, 1, Some("https://"));

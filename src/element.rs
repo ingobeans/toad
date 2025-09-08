@@ -792,9 +792,12 @@ impl Element {
                             return Ok(());
                         };
                         self_interactable = Some(global_ctx.interactables.len());
-                        global_ctx
-                            .interactables
-                            .push(Interactable::InputText(form, name.clone()));
+                        global_ctx.interactables.push(Interactable::InputText(
+                            form,
+                            name.clone(),
+                            (width / EM).saturating_sub(2),
+                            None,
+                        ));
                         Some(
                             self.get_attribute("value").cloned().unwrap_or(
                                 self.get_attribute("placeholder")

@@ -1,6 +1,11 @@
-use std::io::{Write, stdout};
+use std::io::{Stdout, Write, stdout};
 
-use crossterm::{cursor, event, execute, queue, terminal};
+use crossterm::{
+    cursor,
+    event::{self, KeyCode, KeyModifiers},
+    execute, queue, style, terminal,
+};
+use unicode_width::UnicodeWidthStr;
 
 pub fn pop_until<T: PartialEq>(a: &mut Vec<T>, b: &T) -> Vec<T> {
     let mut popped = Vec::new();
@@ -66,30 +71,125 @@ pub fn remove_whitespace(input: &str) -> String {
         .replace("\n", "")
         .replace("\r", "")
 }
-pub fn get_line_input<T: Write>(
-    stdout: &mut T,
-    x: u16,
-    y: u16,
-    initial: Option<&str>,
-) -> Option<String> {
-    terminal::disable_raw_mode().ok()?;
-    execute!(
-        stdout,
-        event::DisableMouseCapture,
-        cursor::MoveTo(x, y),
-        terminal::Clear(terminal::ClearType::CurrentLine),
-        cursor::Show
-    )
-    .ok()?;
-    let mut editor = rustyline::DefaultEditor::new().ok()?;
-    let resp = if let Some(initial) = initial {
-        editor.readline_with_initial("", (initial, "")).ok()
-    } else {
-        editor.readline("").ok()
-    };
 
-    terminal::enable_raw_mode().ok()?;
-    queue!(stdout, cursor::Hide, event::EnableMouseCapture).ok()?;
+fn insert_char(string: &mut String, insert: char, index: usize) {
+    if index >= string.chars().count() {
+        string.push(insert);
+        return;
+    }
+    let mut new = String::new();
+    for (i, char) in string.chars().enumerate() {
+        if i == index {
+            new.push(insert);
+        }
+        new.push(char);
+    }
+    *string = new;
+}
+fn remove_char(string: &mut String, index: usize) {
+    let mut new = String::new();
+    for (i, char) in string.chars().enumerate() {
+        if i != index {
+            new.push(char);
+        }
+    }
+    *string = new;
+}
 
-    resp
+pub enum InputBoxSubmitTarget {
+    OpenNewTab,
+    ChangeAddress,
+    SetFormTextField(usize, String),
+}
+
+pub enum InputBoxState {
+    Active,
+    Submitted,
+    Cancelled,
+}
+
+pub struct InputBox {
+    pub x: u16,
+    pub y: u16,
+    pub width: u16,
+    pub text: String,
+    cursor_pos: usize,
+    pub state: InputBoxState,
+    pub on_submit: InputBoxSubmitTarget,
+}
+impl InputBox {
+    pub fn new(
+        x: u16,
+        y: u16,
+        width: u16,
+        on_submit: InputBoxSubmitTarget,
+        text: Option<String>,
+    ) -> Self {
+        let text = text.unwrap_or_default();
+        Self {
+            x,
+            y,
+            width,
+            cursor_pos: text.chars().count(),
+            text,
+            state: InputBoxState::Active,
+            on_submit,
+        }
+    }
+    pub fn draw(&self, mut stdout: &Stdout) -> std::io::Result<()> {
+        queue!(
+            stdout,
+            cursor::Show,
+            cursor::MoveTo(self.x, self.y),
+            style::ResetColor
+        )?;
+        write!(
+            stdout,
+            "{}{}",
+            self.text,
+            " ".repeat(self.width as usize - self.text.width())
+        )?;
+        queue!(
+            stdout,
+            cursor::MoveToColumn(self.x + self.cursor_pos as u16)
+        )?;
+        Ok(())
+    }
+    pub fn on_event(&mut self, event: event::KeyEvent) {
+        match event.code {
+            KeyCode::Left => {
+                self.cursor_pos = self.cursor_pos.saturating_sub(1);
+            }
+            KeyCode::Right => {
+                self.cursor_pos += 1;
+                if self.cursor_pos > self.text.chars().count() {
+                    self.cursor_pos -= 1;
+                }
+            }
+            KeyCode::Enter => {
+                self.state = InputBoxState::Submitted;
+            }
+            KeyCode::Esc => {
+                self.state = InputBoxState::Cancelled;
+            }
+            KeyCode::Char(char) => {
+                if char == 'c' && event.modifiers.contains(KeyModifiers::CONTROL) {
+                    self.state = InputBoxState::Cancelled;
+                } else {
+                    insert_char(&mut self.text, char, self.cursor_pos);
+                    self.cursor_pos += 1;
+                }
+            }
+            KeyCode::Backspace => {
+                if self.cursor_pos > 0 {
+                    self.cursor_pos -= 1;
+                    remove_char(&mut self.text, self.cursor_pos);
+                }
+            }
+            KeyCode::Delete => {
+                remove_char(&mut self.text, self.cursor_pos);
+            }
+            _ => {}
+        }
+    }
 }

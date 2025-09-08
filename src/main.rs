@@ -328,7 +328,7 @@ struct Form {
 #[derive(Clone, PartialEq)]
 enum Interactable {
     Link(String),
-    InputText(usize, String),
+    InputText(usize, String, u16, Option<(u16, u16)>),
     InputSubmit(usize),
 }
 struct GlobalDrawContext<'a> {
@@ -440,6 +440,7 @@ struct Toad {
     current_page_id: usize,
     cached_resized_images: Vec<(Url, u16, u16, image::DynamicImage)>,
     prev_buffer: Option<Buffer>,
+    current_input_box: Option<InputBox>,
 }
 impl Toad {
     fn new() -> Result<Self, reqwest::Error> {
@@ -491,7 +492,7 @@ impl Toad {
         self.current_page_id += 1;
         self.tabs.insert(self.tab_index, page);
     }
-    async fn interact(&mut self, mut stdout: &Stdout) -> io::Result<()> {
+    async fn interact(&mut self, stdout: &Stdout) -> io::Result<()> {
         let Some(tab) = self.tabs.get_mut(self.tab_index) else {
             return Ok(());
         };
@@ -511,22 +512,18 @@ impl Toad {
                 self.draw_topbar(stdout)?;
                 self.draw(stdout)?;
             }
-            Interactable::InputText(index, name) => {
+            Interactable::InputText(index, name, width, pos) => {
                 let Some(cached) = &mut tab.cached_draw else {
                     return Ok(());
                 };
-                let Some(input) = get_line_input(
-                    &mut stdout,
-                    0,
-                    2,
-                    cached.forms[*index]
-                        .text_fields
-                        .get(name)
-                        .map(|x| x.as_str()),
-                ) else {
-                    return Ok(());
-                };
-                cached.forms[*index].text_fields.insert(name.clone(), input);
+                let (x, y) = pos.unwrap();
+                self.current_input_box = Some(InputBox::new(
+                    x + 1,
+                    y + 2 + 1,
+                    *width,
+                    InputBoxSubmitTarget::SetFormTextField(*index, name.clone()),
+                    cached.forms[*index].text_fields.get(name).cloned(),
+                ));
                 self.prev_buffer = None;
                 self.draw(stdout)?;
             }
@@ -564,6 +561,60 @@ impl Toad {
 
         Ok(())
     }
+    async fn handle_input_box_state(&mut self, mut stdout: &Stdout) -> io::Result<()> {
+        let input_box = self.current_input_box.as_mut().unwrap();
+        match &input_box.state {
+            InputBoxState::Submitted => {
+                let input_box = self.current_input_box.take().unwrap();
+                queue!(stdout, cursor::Hide)?;
+                match input_box.on_submit {
+                    InputBoxSubmitTarget::OpenNewTab => {
+                        if let Ok(url) = Url::from_str(&input_box.text)
+                            && let Some(page) = self.get_url(url).await
+                        {
+                            self.open_page(page).await;
+                        }
+                        self.draw_topbar(stdout)?;
+                        self.draw(stdout)?;
+                    }
+                    InputBoxSubmitTarget::ChangeAddress => {
+                        if let Ok(url) = Url::from_str(&input_box.text)
+                            && let Some(page) = self.get_url(url).await
+                        {
+                            self.tabs.remove(self.tab_index);
+                            self.tab_index = self.tab_index.saturating_sub(1);
+                            self.open_page(page).await;
+                        }
+                    }
+                    InputBoxSubmitTarget::SetFormTextField(index, name) => {
+                        if let Some(tab) = self.tabs.get_mut(self.tab_index)
+                            && let Some(cached) = &mut tab.cached_draw
+                        {
+                            cached.forms[index]
+                                .text_fields
+                                .insert(name.clone(), input_box.text);
+                        };
+                        self.prev_buffer = None;
+                        self.draw(stdout)?;
+                    }
+                }
+            }
+            InputBoxState::Cancelled => {
+                let input_box = self.current_input_box.take().unwrap();
+                queue!(stdout, cursor::Hide)?;
+                if let InputBoxSubmitTarget::SetFormTextField(_, _) = input_box.on_submit {
+                    self.prev_buffer = None;
+                } else {
+                    self.draw_topbar(stdout)?;
+                }
+                self.draw(stdout)?;
+            }
+            _ => {
+                self.draw(stdout)?;
+            }
+        }
+        Ok(())
+    }
     async fn run(&mut self) -> io::Result<()> {
         add_panic_handler();
         let mut running = true;
@@ -573,6 +624,7 @@ impl Toad {
         self.draw_topbar(&stdout)?;
         self.draw(&stdout)?;
         while running {
+            let (screen_width, _) = terminal::size()?;
             if event::poll(Duration::from_millis(100))? {
                 let event = event::read()?;
                 if !event.is_key_press() {
@@ -586,96 +638,98 @@ impl Toad {
                         let Some(prev) = &self.prev_buffer else {
                             continue;
                         };
-                        let mut needs_redraw = false;
-
-                        if mouse_event.row >= 2 {
-                            let cursor_item = prev.get_interactable(
-                                mouse_event.column as usize,
-                                mouse_event.row as usize - 2,
-                            );
-
-                            let new = cursor_item.map(|f| cached.interactables[f].clone());
-                            if tab.tab_index != cursor_item {
-                                tab.tab_index = cursor_item;
-                                tab.hovered_interactable = new;
-                                needs_redraw = true;
+                        if self.current_input_box.is_some() {
+                            if let event::MouseEventKind::Down(_) = mouse_event.kind
+                                && let Some(input_box) = &mut self.current_input_box
+                            {
+                                input_box.state = InputBoxState::Cancelled;
+                                self.handle_input_box_state(&stdout).await?;
                             }
-                        }
-                        match mouse_event.kind {
-                            event::MouseEventKind::ScrollDown => {
-                                tab.scroll_y += 1;
-                                needs_redraw = true;
-                            }
-                            event::MouseEventKind::ScrollUp => {
-                                tab.scroll_y = tab.scroll_y.saturating_sub(1);
-                                needs_redraw = true;
-                            }
-                            event::MouseEventKind::Down(_) => {
-                                if mouse_event.row >= 2 {
-                                    // handle click interactable
-                                    self.interact(&stdout).await?;
-                                    needs_redraw = false;
-                                } else if mouse_event.row == 0 {
-                                    let screen_width = terminal::size()?.0 as usize;
-                                    let mut current_tab_width =
-                                        self.tabs[self.tab_index].get_title().trim().width() + 3;
-                                    if current_tab_width > screen_width - 3 {
-                                        current_tab_width = screen_width - 3;
-                                    }
-                                    let other_space = screen_width - current_tab_width;
-                                    let max_invidivual_tab_width = if self.tabs.len() <= 1 {
-                                        0
-                                    } else {
-                                        other_space / (self.tabs.len() - 1)
-                                    };
-                                    // click tab bar
-                                    let mouse_x = mouse_event.column as usize;
-                                    let mut x = 0;
-                                    for (index, tab) in self.tabs.iter().enumerate() {
-                                        let text = tab.get_title().trim().to_string();
-                                        let w = text.width();
-                                        let width = if index == self.tab_index {
-                                            current_tab_width - 3
-                                        } else {
-                                            if max_invidivual_tab_width <= 3 {
-                                                continue;
-                                            }
-                                            w.min(max_invidivual_tab_width - 3)
-                                        };
-                                        let old = x;
-                                        x += width + 3;
-                                        if (old..x).contains(&mouse_x) {
-                                            self.tab_index = index;
-                                            self.draw_topbar(&stdout)?;
-                                            needs_redraw = true;
-                                            break;
-                                        }
-                                    }
-                                } else if mouse_event.row == 1 {
-                                    // click url bar
+                        } else {
+                            let mut needs_redraw = false;
 
-                                    let input = get_line_input(
-                                        &mut stdout,
-                                        0,
-                                        1,
-                                        tab.url.clone().map(|f| f.to_string()).as_deref(),
-                                    );
-                                    if let Some(input) = input
-                                        && let Ok(url) = Url::from_str(&input)
-                                        && let Some(page) = self.get_url(url).await
-                                    {
-                                        self.tabs.remove(self.tab_index);
-                                        self.tab_index = self.tab_index.saturating_sub(1);
-                                        self.open_page(page).await;
-                                    }
-                                    self.draw_topbar(&stdout)?;
+                            if mouse_event.row >= 2 {
+                                let cursor_item = prev.get_interactable(
+                                    mouse_event.column as usize,
+                                    mouse_event.row as usize - 2,
+                                );
+
+                                let new = cursor_item.map(|f| cached.interactables[f].clone());
+                                if tab.tab_index != cursor_item {
+                                    tab.tab_index = cursor_item;
+                                    tab.hovered_interactable = new;
                                     needs_redraw = true;
                                 }
                             }
-                            _ => {}
-                        }
-                        if needs_redraw {
-                            self.draw(&stdout)?;
+                            match mouse_event.kind {
+                                event::MouseEventKind::ScrollDown => {
+                                    tab.scroll_y += 1;
+                                    needs_redraw = true;
+                                }
+                                event::MouseEventKind::ScrollUp => {
+                                    tab.scroll_y = tab.scroll_y.saturating_sub(1);
+                                    needs_redraw = true;
+                                }
+                                event::MouseEventKind::Down(_) => {
+                                    if mouse_event.row >= 2 {
+                                        // handle click interactable
+                                        self.interact(&stdout).await?;
+                                        needs_redraw = false;
+                                    } else if mouse_event.row == 0 {
+                                        let screen_width = terminal::size()?.0 as usize;
+                                        let mut current_tab_width =
+                                            self.tabs[self.tab_index].get_title().trim().width()
+                                                + 3;
+                                        if current_tab_width > screen_width - 3 {
+                                            current_tab_width = screen_width - 3;
+                                        }
+                                        let other_space = screen_width - current_tab_width;
+                                        let max_invidivual_tab_width = if self.tabs.len() <= 1 {
+                                            0
+                                        } else {
+                                            other_space / (self.tabs.len() - 1)
+                                        };
+                                        // click tab bar
+                                        let mouse_x = mouse_event.column as usize;
+                                        let mut x = 0;
+                                        for (index, tab) in self.tabs.iter().enumerate() {
+                                            let text = tab.get_title().trim().to_string();
+                                            let w = text.width();
+                                            let width = if index == self.tab_index {
+                                                current_tab_width - 3
+                                            } else {
+                                                if max_invidivual_tab_width <= 3 {
+                                                    continue;
+                                                }
+                                                w.min(max_invidivual_tab_width - 3)
+                                            };
+                                            let old = x;
+                                            x += width + 3;
+                                            if (old..x).contains(&mouse_x) {
+                                                self.tab_index = index;
+                                                self.draw_topbar(&stdout)?;
+                                                needs_redraw = true;
+                                                break;
+                                            }
+                                        }
+                                    } else if mouse_event.row == 1 {
+                                        // click url bar
+
+                                        self.current_input_box = Some(InputBox::new(
+                                            0,
+                                            1,
+                                            screen_width,
+                                            InputBoxSubmitTarget::ChangeAddress,
+                                            tab.url.clone().map(|f| f.to_string()),
+                                        ));
+                                        needs_redraw = true;
+                                    }
+                                }
+                                _ => {}
+                            }
+                            if needs_redraw {
+                                self.draw(&stdout)?;
+                            }
                         }
                     };
                     continue;
@@ -683,118 +737,122 @@ impl Toad {
                 let event::Event::Key(key) = event else {
                     continue;
                 };
-                match key.code {
-                    event::KeyCode::Enter => {
-                        self.interact(&stdout).await?;
-                    }
-                    event::KeyCode::F(12) => {
-                        if let Some(tab) = self.tabs.get(self.tab_index) {
-                            let debug = tab.debug_info.clone();
-                            let _page_text = sanitize(
-                                &tab.root
-                                    .as_ref()
-                                    .map(|f| f.print_recursive(0))
-                                    .unwrap_or(String::new()),
-                            );
-                            let mut s = String::new();
-                            for (item, _) in tab.global_style.iter() {
-                                s += &format!("{:?}", item);
-                                s += "\n\n"
-                            }
-                            let html = DEBUG_PAGE
+                if let Some(input_box) = &mut self.current_input_box {
+                    input_box.on_event(key);
+                    self.handle_input_box_state(&stdout).await?;
+                } else {
+                    match key.code {
+                        event::KeyCode::Enter => {
+                            self.interact(&stdout).await?;
+                        }
+                        event::KeyCode::F(12) => {
+                            if let Some(tab) = self.tabs.get(self.tab_index) {
+                                let debug = tab.debug_info.clone();
+                                let _page_text = sanitize(
+                                    &tab.root
+                                        .as_ref()
+                                        .map(|f| f.print_recursive(0))
+                                        .unwrap_or(String::new()),
+                                );
+                                let mut s = String::new();
+                                for (item, _) in tab.global_style.iter() {
+                                    s += &format!("{:?}", item);
+                                    s += "\n\n"
+                                }
+                                let html = DEBUG_PAGE
                                 .replace("{DEBUGINFO}", &sanitize(&format!("{:?}", debug)))
                                 .replace("{STYLE_TARGETS}", &sanitize(&s))
                                // .replace("{PAGE}", &page_text);
                                ;
-                            if let Some(page) = parse_html(&html) {
-                                self.open_page(page).await;
-                                self.draw_topbar(&stdout)?;
-                                self.draw(&stdout)?;
+                                if let Some(page) = parse_html(&html) {
+                                    self.open_page(page).await;
+                                    self.draw_topbar(&stdout)?;
+                                    self.draw(&stdout)?;
+                                }
                             }
                         }
-                    }
-                    event::KeyCode::Tab => {
-                        self.tab_index += 1;
-                        if self.tab_index >= self.tabs.len() {
-                            self.tab_index = 0;
-                        }
-                        self.draw_topbar(&stdout)?;
-                        self.draw(&stdout)?;
-                    }
-                    event::KeyCode::Down => {
-                        if let Some(tab) = self.tabs.get_mut(self.tab_index) {
-                            tab.scroll_y += 1;
-                            self.draw(&stdout)?;
-                        }
-                    }
-                    event::KeyCode::Up => {
-                        if let Some(tab) = self.tabs.get_mut(self.tab_index) {
-                            tab.scroll_y = tab.scroll_y.saturating_sub(1);
-                            self.draw(&stdout)?;
-                        }
-                    }
-                    event::KeyCode::Right => {
-                        if let Some(tab) = self.tabs.get_mut(self.tab_index) {
-                            tab.tab_index = Some(tab.tab_index.map(|i| i + 1).unwrap_or(0));
-                            self.draw(&stdout)?;
-                        }
-                    }
-                    event::KeyCode::Left => {
-                        if let Some(tab) = self.tabs.get_mut(self.tab_index) {
-                            tab.tab_index =
-                                Some(tab.tab_index.map(|i| i.saturating_sub(1)).unwrap_or(0));
-                            self.draw(&stdout)?;
-                        }
-                    }
-                    event::KeyCode::PageDown => {
-                        let (_, screen_height) = terminal::size()?;
-                        if let Some(tab) = self.tabs.get_mut(self.tab_index) {
-                            tab.scroll_y += screen_height;
-                            self.draw(&stdout)?;
-                        }
-                    }
-                    event::KeyCode::PageUp => {
-                        let (_, screen_height) = terminal::size()?;
-                        if let Some(tab) = self.tabs.get_mut(self.tab_index) {
-                            tab.scroll_y = tab.scroll_y.saturating_sub(screen_height);
-                            self.draw(&stdout)?;
-                        }
-                    }
-                    event::KeyCode::Char(char) => {
-                        let control = key.modifiers.contains(event::KeyModifiers::CONTROL);
-                        if char == 'r' {
-                            if let Some(page) = self.tabs.get_mut(self.tab_index) {
-                                refresh_style(page, &self.fetched_assets);
-                                page.cached_draw = None;
-                                self.prev_buffer = None;
+                        event::KeyCode::Tab => {
+                            self.tab_index += 1;
+                            if self.tab_index >= self.tabs.len() {
+                                self.tab_index = 0;
                             }
                             self.draw_topbar(&stdout)?;
                             self.draw(&stdout)?;
-                        } else if char == 'q' {
-                            running = false;
-                        } else if char == 'w' && control {
-                            if self.tab_index < self.tabs.len() {
-                                self.tabs.remove(self.tab_index);
-                                self.tab_index = self.tab_index.saturating_sub(1);
-                                if self.tabs.is_empty() {
-                                    break;
-                                }
-                                self.draw_topbar(&stdout)?;
-                                self.draw(&stdout)?;
-                            }
-                        } else if char == 'g' {
-                            let input = get_line_input(&mut stdout, 0, 1, Some("https://"));
-                            if let Some(input) = input
-                                && let Ok(url) = Url::from_str(&input)
-                                && let Some(page) = self.get_url(url).await
-                            {
-                                self.open_page(page).await;
-                                self.draw_topbar(&stdout)?;
+                        }
+                        event::KeyCode::Down => {
+                            if let Some(tab) = self.tabs.get_mut(self.tab_index) {
+                                tab.scroll_y += 1;
                                 self.draw(&stdout)?;
                             }
                         }
+                        event::KeyCode::Up => {
+                            if let Some(tab) = self.tabs.get_mut(self.tab_index) {
+                                tab.scroll_y = tab.scroll_y.saturating_sub(1);
+                                self.draw(&stdout)?;
+                            }
+                        }
+                        event::KeyCode::Right => {
+                            if let Some(tab) = self.tabs.get_mut(self.tab_index) {
+                                tab.tab_index = Some(tab.tab_index.map(|i| i + 1).unwrap_or(0));
+                                self.draw(&stdout)?;
+                            }
+                        }
+                        event::KeyCode::Left => {
+                            if let Some(tab) = self.tabs.get_mut(self.tab_index) {
+                                tab.tab_index =
+                                    Some(tab.tab_index.map(|i| i.saturating_sub(1)).unwrap_or(0));
+                                self.draw(&stdout)?;
+                            }
+                        }
+                        event::KeyCode::PageDown => {
+                            let (_, screen_height) = terminal::size()?;
+                            if let Some(tab) = self.tabs.get_mut(self.tab_index) {
+                                tab.scroll_y += screen_height;
+                                self.draw(&stdout)?;
+                            }
+                        }
+                        event::KeyCode::PageUp => {
+                            let (_, screen_height) = terminal::size()?;
+                            if let Some(tab) = self.tabs.get_mut(self.tab_index) {
+                                tab.scroll_y = tab.scroll_y.saturating_sub(screen_height);
+                                self.draw(&stdout)?;
+                            }
+                        }
+                        event::KeyCode::Char(char) => {
+                            let control = key.modifiers.contains(event::KeyModifiers::CONTROL);
+                            if char == 'r' {
+                                if let Some(page) = self.tabs.get_mut(self.tab_index) {
+                                    refresh_style(page, &self.fetched_assets);
+                                    page.cached_draw = None;
+                                    self.prev_buffer = None;
+                                }
+                                self.draw_topbar(&stdout)?;
+                                self.draw(&stdout)?;
+                            } else if char == 'q' {
+                                running = false;
+                            } else if char == 'w' && control {
+                                if self.tab_index < self.tabs.len() {
+                                    self.tabs.remove(self.tab_index);
+                                    self.tab_index = self.tab_index.saturating_sub(1);
+                                    if self.tabs.is_empty() {
+                                        break;
+                                    }
+                                    self.draw_topbar(&stdout)?;
+                                    self.draw(&stdout)?;
+                                }
+                            } else if char == 'g' {
+                                self.current_input_box = Some(InputBox::new(
+                                    0,
+                                    1,
+                                    screen_width,
+                                    InputBoxSubmitTarget::OpenNewTab,
+                                    None,
+                                ));
+                                self.draw(&stdout)?;
+                            }
+                        }
+                        _ => {}
                     }
-                    _ => {}
                 }
             }
             // update fetch queue
@@ -847,6 +905,9 @@ impl Toad {
     }
     fn draw(&mut self, mut stdout: &Stdout) -> io::Result<()> {
         self.draw_current_page(stdout)?;
+        if let Some(input_box) = &self.current_input_box {
+            input_box.draw(stdout)?;
+        }
         stdout.flush()
     }
     fn draw_topbar(&self, mut stdout: &Stdout) -> io::Result<()> {
@@ -1068,11 +1129,19 @@ impl Toad {
                     } else if y + h - tab.scroll_y > (screen_height) {
                         h = (screen_height) + tab.scroll_y - y;
                     }
+                    let y = y.saturating_sub(tab.scroll_y);
 
                     let hovered = tab.tab_index.is_some_and(|f| f == interactable_index);
                     let interactable = &draws.interactables[interactable_index];
                     let (form, name) = match interactable {
-                        Interactable::InputText(form, text) => (form, text.clone()),
+                        Interactable::InputText(form, text, width, _) => {
+                            let new =
+                                Interactable::InputText(*form, text.clone(), *width, Some((x, y)));
+                            tab.cached_draw.as_mut().unwrap().interactables[interactable_index] =
+                                new;
+
+                            (form, text.clone())
+                        }
                         Interactable::InputSubmit(form) => (form, String::from("Submit Button")),
                         _ => {
                             panic!()
@@ -1086,7 +1155,6 @@ impl Toad {
                         placeholder_text = value.clone();
                     }
 
-                    let y = y.saturating_sub(tab.scroll_y);
                     for i in 0..h {
                         buffer.draw_input_box(
                             x,

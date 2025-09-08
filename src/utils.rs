@@ -1,6 +1,6 @@
 use std::io::{Write, stdout};
 
-use crossterm::{cursor, execute, queue, terminal};
+use crossterm::{cursor, event, execute, queue, terminal};
 
 pub fn pop_until<T: PartialEq>(a: &mut Vec<T>, b: &T) -> Vec<T> {
     let mut popped = Vec::new();
@@ -75,6 +75,7 @@ pub fn get_line_input<T: Write>(
     terminal::disable_raw_mode().ok()?;
     execute!(
         stdout,
+        event::DisableMouseCapture,
         cursor::MoveTo(x, y),
         terminal::Clear(terminal::ClearType::CurrentLine),
         cursor::Show
@@ -88,7 +89,7 @@ pub fn get_line_input<T: Write>(
     };
 
     terminal::enable_raw_mode().ok()?;
-    queue!(stdout, cursor::Hide).ok()?;
+    queue!(stdout, cursor::Hide, event::EnableMouseCapture).ok()?;
 
     resp
 }

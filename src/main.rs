@@ -926,8 +926,8 @@ impl Toad {
         queue!(
             stdout,
             cursor::MoveTo(0, 0),
-            style::SetBackgroundColor(style::Color::Grey),
-            style::SetForegroundColor(style::Color::Black),
+            style::SetBackgroundColor(GREY_COLOR),
+            style::SetForegroundColor(BLACK_COLOR),
             terminal::Clear(terminal::ClearType::CurrentLine),
         )?;
         for (index, tab) in self.tabs.iter().enumerate() {
@@ -948,7 +948,7 @@ impl Toad {
             if index == self.tab_index {
                 queue!(stdout, style::SetBackgroundColor(style::Color::White))?;
                 print!("[{text}]");
-                queue!(stdout, style::SetBackgroundColor(style::Color::Grey))?;
+                queue!(stdout, style::SetBackgroundColor(GREY_COLOR))?;
                 print!(" ")
             } else {
                 print!("[{text}] ");
@@ -1174,7 +1174,7 @@ impl Toad {
                         && tab_amt == interactable
                     {
                         tab.hovered_interactable = Some(draws.interactables[interactable].clone());
-                        ctx.background_color = Specified(style::Color::Blue);
+                        ctx.background_color = Specified(BLUE_COLOR);
                     }
                     let x = x / EM;
                     let y = y / LH;
@@ -1204,7 +1204,7 @@ impl Toad {
                 .min(1.0)
                 * screen_height as f32)
                 .min(screen_height as f32 - 1.0);
-            buffer.set_pixel(screen_width - 1, scroll_amt as u16, style::Color::Black);
+            buffer.set_pixel(screen_width - 1, scroll_amt as u16, BLACK_COLOR);
         }
 
         buffer.render(

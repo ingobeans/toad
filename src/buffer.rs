@@ -66,8 +66,8 @@ impl Default for Cell {
     fn default() -> Self {
         Self {
             char: ' ',
-            foreground_color: DEFAULT_FOREGROUND_COLOR,
-            background_color: Color::Reset,
+            foreground_color: BLACK_COLOR,
+            background_color: WHITE_COLOR,
             bold: false,
             italics: false,
         }
@@ -76,7 +76,7 @@ impl Default for Cell {
 
 fn apply_draw_ctx_to_cell(draw_ctx: &ElementDrawContext, cell: &mut Cell) {
     // always apply foreground color
-    cell.foreground_color = draw_ctx.foreground_color.unwrap_or(Color::Black);
+    cell.foreground_color = draw_ctx.foreground_color.unwrap_or(BLACK_COLOR);
     // background color doesnt have to be applied, and will use whatever was there previously
     if let NonInheritedField::Specified(background_color) = draw_ctx.background_color {
         cell.background_color = background_color;
@@ -125,6 +125,7 @@ impl Buffer {
         start_y: usize,
     ) -> io::Result<()> {
         let mut last = Cell::default();
+        last.background_color = Color::Reset;
         let mut data = self.data.iter().enumerate();
         let mut prev_data = prev.map(|f| f.data.iter());
 
@@ -193,12 +194,8 @@ impl Buffer {
         interactable: usize,
     ) {
         let mut text_chars = text.chars();
-        let background_color = if !highlighted {
-            Color::Grey
-        } else {
-            Color::Blue
-        };
-        let border_color = Color::Black;
+        let background_color = if !highlighted { GREY_COLOR } else { BLUE_COLOR };
+        let border_color = BLACK_COLOR;
         let mut skip = false;
         for column in 0..width {
             if skip {
@@ -346,7 +343,7 @@ impl Buffer {
 mod tests {
     use crossterm::style::Color;
 
-    use crate::{DEFAULT_DRAW_CTX, buffer::Buffer};
+    use crate::{DEFAULT_DRAW_CTX, buffer::Buffer, consts::BLUE_COLOR};
 
     #[test]
     fn test_write_str() {
@@ -369,8 +366,8 @@ mod tests {
     #[test]
     fn test_rect() {
         let mut buf = Buffer::empty(10, 2);
-        buf.draw_rect(1, 0, 5, 1, Color::Blue);
+        buf.draw_rect(1, 0, 5, 1, BLUE_COLOR);
         assert_eq!(buf.data[0].background_color, Color::Reset);
-        assert_eq!(buf.data[1].background_color, Color::Blue);
+        assert_eq!(buf.data[1].background_color, BLUE_COLOR);
     }
 }

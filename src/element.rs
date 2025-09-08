@@ -101,7 +101,7 @@ static BODY: ElementType = ElementType {
     draw_ctx: ElementDrawContext {
         width: Specified(Measurement::PercentWidth(1.0)),
         height: Specified(Measurement::PercentHeight(1.0)),
-        background_color: Specified(DEFAULT_BACKGROUND_COLOR),
+        background_color: Specified(WHITE_COLOR),
         display: Specified(Display::Block),
         ..DEFAULT_DRAW_CTX
     },
@@ -144,7 +144,7 @@ static INPUT: ElementType = ElementType {
     draw_ctx: ElementDrawContext {
         width: Specified(Measurement::Pixels(20 * EM)),
         height: Specified(Measurement::Pixels(3 * LH)),
-        background_color: Specified(style::Color::Grey),
+        background_color: Specified(GREY_COLOR),
         display: Specified(Display::Inline),
         ..DEFAULT_DRAW_CTX
     },

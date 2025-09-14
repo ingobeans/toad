@@ -16,8 +16,6 @@ Most pages will probably not look good in TOAD, or even load, so here's a list o
 
 
 
-## This browser is for you if:
-
 ## How to install
 
 ### Pre-Compiled
@@ -31,5 +29,7 @@ with cargo:
 cargo install --git https://github.com/ingobeans/toad.git
 ```
 
+## This browser is for you if:
+...
 ## TOAD
 toad? toad

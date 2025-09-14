@@ -908,7 +908,12 @@ impl Toad {
 
         // clean up styling and move cursor to bottom of screen
         let h = terminal::size()?.1;
-        execute!(stdout, cursor::Show, cursor::MoveTo(0, h - 3))?;
+        execute!(
+            stdout,
+            cursor::Show,
+            cursor::MoveTo(0, h - 3),
+            event::DisableMouseCapture
+        )?;
         Ok(())
     }
     fn draw(&mut self, mut stdout: &Stdout) -> io::Result<()> {

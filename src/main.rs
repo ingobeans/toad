@@ -583,6 +583,7 @@ impl Toad {
                             self.tab_index = self.tab_index.saturating_sub(1);
                             self.open_page(page).await;
                         }
+                        self.draw(stdout)?;
                     }
                     InputBoxSubmitTarget::SetFormTextField(index, name) => {
                         if let Some(tab) = self.tabs.get_mut(self.tab_index)

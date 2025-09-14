@@ -518,7 +518,7 @@ impl Toad {
                 let (x, y) = pos.unwrap();
                 self.current_input_box = Some(InputBox::new(
                     x + 1,
-                    y + 2 + 1,
+                    y + 1,
                     *width,
                     InputBoxSubmitTarget::SetFormTextField(*index, name.clone()),
                     cached.forms[*index].text_fields.get(name).cloned(),
@@ -566,6 +566,7 @@ impl Toad {
             InputBoxState::Submitted => {
                 let input_box = self.current_input_box.take().unwrap();
                 queue!(stdout, cursor::Hide)?;
+                self.prev_buffer = None;
                 match input_box.on_submit {
                     InputBoxSubmitTarget::OpenNewTab => {
                         if let Ok(url) = Url::from_str(&input_box.text)
@@ -592,7 +593,6 @@ impl Toad {
                                 .text_fields
                                 .insert(name.clone(), input_box.text);
                         };
-                        self.prev_buffer = None;
                         self.draw(stdout)?;
                     }
                 }
@@ -600,6 +600,7 @@ impl Toad {
             InputBoxState::Cancelled => {
                 let input_box = self.current_input_box.take().unwrap();
                 queue!(stdout, cursor::Hide)?;
+                self.prev_buffer = None;
                 if let InputBoxSubmitTarget::SetFormTextField(_, _) = input_box.on_submit {
                     self.prev_buffer = None;
                 }
@@ -643,10 +644,10 @@ impl Toad {
                         } else {
                             let mut needs_redraw = false;
 
-                            if mouse_event.row >= 2 {
+                            if mouse_event.row >= 3 {
                                 let cursor_item = prev.get_interactable(
                                     mouse_event.column as usize,
-                                    mouse_event.row as usize - 2,
+                                    mouse_event.row as usize,
                                 );
 
                                 let new = cursor_item.map(|f| cached.interactables[f].clone());
@@ -666,7 +667,7 @@ impl Toad {
                                     needs_redraw = true;
                                 }
                                 event::MouseEventKind::Down(_) => {
-                                    if mouse_event.row >= 2 {
+                                    if mouse_event.row >= 3 {
                                         // handle click interactable
                                         self.interact(&stdout).await?;
                                         needs_redraw = false;
@@ -707,16 +708,30 @@ impl Toad {
                                             }
                                         }
                                     } else if mouse_event.row == 1 {
-                                        // click url bar
+                                        if mouse_event.column >= 4 * 3
+                                            && mouse_event.column < screen_width - 4 * 3
+                                        {
+                                            // click url bar
 
-                                        self.current_input_box = Some(InputBox::new(
-                                            0,
-                                            1,
-                                            screen_width,
-                                            InputBoxSubmitTarget::ChangeAddress,
-                                            tab.url.clone().map(|f| f.to_string()),
-                                        ));
-                                        needs_redraw = true;
+                                            self.current_input_box = Some(InputBox::new(
+                                                4 * 3,
+                                                1,
+                                                screen_width - 4 * 3 * 2,
+                                                InputBoxSubmitTarget::ChangeAddress,
+                                                tab.url.clone().map(|f| f.to_string()),
+                                            ));
+                                            needs_redraw = true;
+                                        } else if mouse_event.column <= 2 {
+                                        } else if mouse_event.column <= 5 {
+                                        } else if mouse_event.column > 5 && mouse_event.column <= 9
+                                        {
+                                            if let Some(page) = self.tabs.get_mut(self.tab_index) {
+                                                refresh_style(page, &self.fetched_assets);
+                                                page.cached_draw = None;
+                                                self.prev_buffer = None;
+                                            }
+                                            self.draw(&stdout)?;
+                                        }
                                     }
                                 }
                                 _ => {}
@@ -889,7 +904,7 @@ impl Toad {
 
         // clean up styling and move cursor to bottom of screen
         let h = terminal::size()?.1;
-        execute!(stdout, cursor::Show, cursor::MoveTo(0, h - 2))?;
+        execute!(stdout, cursor::Show, cursor::MoveTo(0, h - 3))?;
         Ok(())
     }
     fn draw(&mut self, mut stdout: &Stdout) -> io::Result<()> {
@@ -911,7 +926,7 @@ impl Toad {
         } else {
             other_space / (self.tabs.len() - 1)
         };
-        buffer.draw_rect(0, 0, screen_width as _, 2, GREY_COLOR);
+        buffer.draw_rect(0, 0, screen_width as _, 3, GREY_COLOR);
         let mut x = 0;
         for (index, tab) in self.tabs.iter().enumerate() {
             let mut text = tab.get_title().trim().to_string();
@@ -936,14 +951,17 @@ impl Toad {
             buffer.draw_str(x, 0, &format!("[{text}]"), &DEFAULT_DRAW_CTX, None);
             x += w + 3;
         }
+        buffer.draw_rect(4 * 3, 1, screen_width as u16 - 4 * 3 * 2, 1, WHITE_COLOR);
         if let Some(Some(url)) = self.tabs.get(self.tab_index).map(|f| &f.url) {
             let mut text = url.to_string().trim().to_string();
             let w = text.width();
             if w > screen_width {
                 text = text[..screen_width].to_string();
             }
-            buffer.draw_str(0, 1, &format!("{text}"), &DEFAULT_DRAW_CTX, None);
+            buffer.draw_str(4 * 3, 1, &format!("{text}"), &DEFAULT_DRAW_CTX, None);
         }
+
+        buffer.draw_str(0, 1, "[←][→] [↻] ", &DEFAULT_DRAW_CTX, None);
     }
     fn draw_current_page(&mut self, mut stdout: &Stdout) -> io::Result<()> {
         let Some(tab) = self.tabs.get_mut(self.tab_index) else {
@@ -963,7 +981,7 @@ impl Toad {
             let mut draw_data = DrawData {
                 parent_width: ActualMeasurement::Pixels(screen_width * EM),
                 parent_height: ActualMeasurement::Pixels(screen_height * LH),
-                y: 2 * LH,
+                y: 3 * LH,
                 ..Default::default()
             };
             tab.root
@@ -1174,13 +1192,13 @@ impl Toad {
         }
         if draws.content_height / LH > screen_height {
             // draw scrollbar
-            let page_height = screen_height - 2;
+            let page_height = screen_height - 3;
             let scroll_amt = (((tab.scroll_y * LH) as f32
                 / (draws.content_height - page_height) as f32)
                 .min(1.0)
                 * page_height as f32)
                 .min(page_height as f32 - 1.0);
-            buffer.set_pixel(screen_width - 1, scroll_amt as u16 + 2, BLACK_COLOR);
+            buffer.set_pixel(screen_width - 1, scroll_amt as u16 + 3, BLACK_COLOR);
         }
 
         self.draw_topbar(&mut buffer);

@@ -147,7 +147,7 @@ impl InputBox {
             stdout,
             "{}{}",
             self.text,
-            " ".repeat(self.width as usize - self.text.width())
+            " ".repeat((self.width as usize).saturating_sub(self.text.width()))
         )?;
         queue!(
             stdout,

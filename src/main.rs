@@ -633,6 +633,7 @@ impl Toad {
                         let Some(prev) = &self.prev_buffer else {
                             continue;
                         };
+
                         if self.current_input_box.is_some() {
                             if let event::MouseEventKind::Down(_) = mouse_event.kind
                                 && let Some(input_box) = &mut self.current_input_box
@@ -655,6 +656,10 @@ impl Toad {
                                     tab.hovered_interactable = new;
                                     needs_redraw = true;
                                 }
+                            } else {
+                                needs_redraw = true;
+                                tab.hovered_interactable = None;
+                                tab.tab_index = None;
                             }
                             match mouse_event.kind {
                                 event::MouseEventKind::ScrollDown => {

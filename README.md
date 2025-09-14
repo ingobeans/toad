@@ -19,10 +19,16 @@ Most pages will probably not look good in TOAD, or even load, so here's a list o
 
 ## How to install
 
-you can install from releases if there is any, otherwise you can use cargo.
+### Pre-Compiled
+install binaries from releases from: [here](https://github.com/ingobeans/toad/releases)
+
+### Build yourself
+you'll need Rust installed, along with its package manager Cargo.
 
 with cargo:
-```cargo install --git https://github.com/ingobeans/toad.git```
+```bash
+cargo install --git https://github.com/ingobeans/toad.git
+```
 
 ## TOAD
 toad? toad

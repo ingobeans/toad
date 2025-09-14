@@ -341,9 +341,11 @@ impl Buffer {
 
 #[cfg(test)]
 mod tests {
-    use crossterm::style::Color;
-
-    use crate::{DEFAULT_DRAW_CTX, buffer::Buffer, consts::BLUE_COLOR};
+    use crate::{
+        DEFAULT_DRAW_CTX,
+        buffer::Buffer,
+        consts::{BLUE_COLOR, WHITE_COLOR},
+    };
 
     #[test]
     fn test_write_str() {
@@ -367,7 +369,7 @@ mod tests {
     fn test_rect() {
         let mut buf = Buffer::empty(10, 2);
         buf.draw_rect(1, 0, 5, 1, BLUE_COLOR);
-        assert_eq!(buf.data[0].background_color, Color::Reset);
+        assert_eq!(buf.data[0].background_color, WHITE_COLOR);
         assert_eq!(buf.data[1].background_color, BLUE_COLOR);
     }
 }

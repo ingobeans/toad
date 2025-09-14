@@ -1,5 +1,9 @@
 use base64::{Engine, prelude::BASE64_STANDARD};
-use crossterm::{cursor, event, execute, queue, style, terminal};
+use crossterm::{
+    cursor,
+    event::{self},
+    execute, queue, style, terminal,
+};
 use reqwest::{Client, Method, Url};
 use std::{
     borrow::Cow,
@@ -956,7 +960,6 @@ impl Toad {
             let w = w as u16;
             if index == self.tab_index {
                 buffer.draw_rect(x, 0, w + 2, 1, WHITE_COLOR);
-            } else {
             }
             buffer.draw_str(x, 0, &format!("[{text}]"), &DEFAULT_DRAW_CTX, None);
             x += w + 3;
@@ -968,7 +971,7 @@ impl Toad {
             if w > screen_width {
                 text = text[..screen_width].to_string();
             }
-            buffer.draw_str(4 * 3, 1, &format!("{text}"), &DEFAULT_DRAW_CTX, None);
+            buffer.draw_str(4 * 3, 1, &text, &DEFAULT_DRAW_CTX, None);
         }
 
         buffer.draw_str(0, 1, "[←][→] [↻] ", &DEFAULT_DRAW_CTX, None);

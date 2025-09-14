@@ -444,12 +444,11 @@ struct Toad {
 }
 impl Toad {
     fn new() -> Result<Self, reqwest::Error> {
-        // i stole the firefox user agent,
-        // because i was scared websites would think my program was a scraper bot if i had something too unique
+        // maybe ill change this to spoof user agent with that of firefox,
+        // to prevent websites thinking this is a scraper bot.
+        // (if found necessary)
         let client = Client::builder()
-            .user_agent(
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:141.0) Gecko/20100101 Firefox/141.0",
-            )
+            .user_agent(format!("Toad/{}", env!("CARGO_PKG_VERSION")))
             .build()?;
         Ok(Self {
             client,

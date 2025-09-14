@@ -509,7 +509,6 @@ impl Toad {
                     self.open_page(page).await;
                 }
 
-                self.draw_topbar(stdout)?;
                 self.draw(stdout)?;
             }
             Interactable::InputText(index, name, width, pos) => {
@@ -574,7 +573,6 @@ impl Toad {
                         {
                             self.open_page(page).await;
                         }
-                        self.draw_topbar(stdout)?;
                         self.draw(stdout)?;
                     }
                     InputBoxSubmitTarget::ChangeAddress => {
@@ -604,8 +602,6 @@ impl Toad {
                 queue!(stdout, cursor::Hide)?;
                 if let InputBoxSubmitTarget::SetFormTextField(_, _) = input_box.on_submit {
                     self.prev_buffer = None;
-                } else {
-                    self.draw_topbar(stdout)?;
                 }
                 self.draw(stdout)?;
             }
@@ -621,7 +617,6 @@ impl Toad {
         let mut stdout = stdout();
         terminal::enable_raw_mode()?;
         queue!(stdout, cursor::Hide, event::EnableMouseCapture)?;
-        self.draw_topbar(&stdout)?;
         self.draw(&stdout)?;
         while running {
             let (screen_width, _) = terminal::size()?;
@@ -707,7 +702,6 @@ impl Toad {
                                             x += width + 3;
                                             if (old..x).contains(&mouse_x) {
                                                 self.tab_index = index;
-                                                self.draw_topbar(&stdout)?;
                                                 needs_redraw = true;
                                                 break;
                                             }
@@ -766,7 +760,6 @@ impl Toad {
                                ;
                                 if let Some(page) = parse_html(&html) {
                                     self.open_page(page).await;
-                                    self.draw_topbar(&stdout)?;
                                     self.draw(&stdout)?;
                                 }
                             }
@@ -776,7 +769,6 @@ impl Toad {
                             if self.tab_index >= self.tabs.len() {
                                 self.tab_index = 0;
                             }
-                            self.draw_topbar(&stdout)?;
                             self.draw(&stdout)?;
                         }
                         event::KeyCode::Down => {
@@ -826,7 +818,6 @@ impl Toad {
                                     page.cached_draw = None;
                                     self.prev_buffer = None;
                                 }
-                                self.draw_topbar(&stdout)?;
                                 self.draw(&stdout)?;
                             } else if char == 'q' {
                                 running = false;
@@ -837,7 +828,6 @@ impl Toad {
                                     if self.tabs.is_empty() {
                                         break;
                                     }
-                                    self.draw_topbar(&stdout)?;
                                     self.draw(&stdout)?;
                                 }
                             } else if char == 'g' {
@@ -892,7 +882,6 @@ impl Toad {
             });
             // if any finished loading
             if any_changed {
-                self.draw_topbar(&stdout)?;
                 self.draw(&stdout)?;
             }
         }
@@ -910,8 +899,8 @@ impl Toad {
         }
         stdout.flush()
     }
-    fn draw_topbar(&self, mut stdout: &Stdout) -> io::Result<()> {
-        let screen_width = terminal::size()?.0 as usize;
+    fn draw_topbar(&self, buffer: &mut Buffer) {
+        let screen_width = terminal::size().unwrap().0 as usize;
         let mut current_tab_width = self.tabs[self.tab_index].get_title().trim().width() + 3;
         if current_tab_width > screen_width - 3 {
             current_tab_width = screen_width - 3;
@@ -922,14 +911,8 @@ impl Toad {
         } else {
             other_space / (self.tabs.len() - 1)
         };
-
-        queue!(
-            stdout,
-            cursor::MoveTo(0, 0),
-            style::SetBackgroundColor(GREY_COLOR),
-            style::SetForegroundColor(BLACK_COLOR),
-            terminal::Clear(terminal::ClearType::CurrentLine),
-        )?;
+        buffer.draw_rect(0, 0, screen_width as _, 2, GREY_COLOR);
+        let mut x = 0;
         for (index, tab) in self.tabs.iter().enumerate() {
             let mut text = tab.get_title().trim().to_string();
             let w = text.width();
@@ -945,37 +928,28 @@ impl Toad {
                     text = text[..max_invidivual_tab_width - 3].to_string();
                 }
             }
+            let w = w as u16;
             if index == self.tab_index {
-                queue!(stdout, style::SetBackgroundColor(style::Color::White))?;
-                print!("[{text}]");
-                queue!(stdout, style::SetBackgroundColor(GREY_COLOR))?;
-                print!(" ")
+                buffer.draw_rect(x, 0, w + 2, 1, WHITE_COLOR);
             } else {
-                print!("[{text}] ");
             }
+            buffer.draw_str(x, 0, &format!("[{text}]"), &DEFAULT_DRAW_CTX, None);
+            x += w + 3;
         }
-        queue!(stdout, cursor::MoveToNextLine(1))?;
-        queue!(stdout, terminal::Clear(terminal::ClearType::CurrentLine))?;
         if let Some(Some(url)) = self.tabs.get(self.tab_index).map(|f| &f.url) {
             let mut text = url.to_string().trim().to_string();
             let w = text.width();
             if w > screen_width {
                 text = text[..screen_width].to_string();
             }
-            print!("{text}")
+            buffer.draw_str(0, 1, &format!("{text}"), &DEFAULT_DRAW_CTX, None);
         }
-        queue!(stdout, style::ResetColor)?;
-        stdout.flush()
     }
     fn draw_current_page(&mut self, mut stdout: &Stdout) -> io::Result<()> {
         let Some(tab) = self.tabs.get_mut(self.tab_index) else {
             return Ok(());
         };
-        let start_x = 0;
-        let start_y = 2;
         let (screen_width, screen_height) = terminal::size()?;
-        let screen_height = screen_height - start_y;
-        queue!(stdout, cursor::MoveTo(start_x, start_y))?;
 
         let mut draws = if let Some(calls) = &tab.cached_draw {
             calls.clone()
@@ -989,6 +963,7 @@ impl Toad {
             let mut draw_data = DrawData {
                 parent_width: ActualMeasurement::Pixels(screen_width * EM),
                 parent_height: ActualMeasurement::Pixels(screen_height * LH),
+                y: 2 * LH,
                 ..Default::default()
             };
             tab.root
@@ -1199,20 +1174,19 @@ impl Toad {
         }
         if draws.content_height / LH > screen_height {
             // draw scrollbar
+            let page_height = screen_height - 2;
             let scroll_amt = (((tab.scroll_y * LH) as f32
-                / (draws.content_height - screen_height) as f32)
+                / (draws.content_height - page_height) as f32)
                 .min(1.0)
-                * screen_height as f32)
-                .min(screen_height as f32 - 1.0);
-            buffer.set_pixel(screen_width - 1, scroll_amt as u16, BLACK_COLOR);
+                * page_height as f32)
+                .min(page_height as f32 - 1.0);
+            buffer.set_pixel(screen_width - 1, scroll_amt as u16 + 2, BLACK_COLOR);
         }
 
-        buffer.render(
-            &mut stdout,
-            self.prev_buffer.as_ref(),
-            start_x as _,
-            start_y as _,
-        )?;
+        self.draw_topbar(&mut buffer);
+
+        queue!(stdout, cursor::MoveTo(0, 0))?;
+        buffer.render(&mut stdout, self.prev_buffer.as_ref(), 0, 0)?;
         self.prev_buffer = Some(buffer);
 
         queue!(stdout, style::ResetColor)

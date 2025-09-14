@@ -326,6 +326,10 @@ pub static ELEMENT_TYPES: &[ElementType] = &[
     },
     ElementType { name: "nav", ..DIV },
     ElementType {
+        name: "noscript",
+        ..DIV
+    },
+    ElementType {
         name: "bdi",
         ..SPAN
     },

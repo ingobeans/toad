@@ -499,6 +499,30 @@ async fn get_data(url: Url, ty: DataType, client: Client) -> Option<DataEntry> {
     }
 }
 
+async fn get_page(client: Client, url: Url) -> Option<DataEntry> {
+    let response = client.get(url.clone()).send().await.ok()?;
+    let data = response.text().await.ok()?;
+    let mut page = parse_html(&data)?;
+    page.url = Some(url);
+    Some(DataEntry::Webpage(Box::new(page)))
+}
+async fn get_page_with_form(client: Client, url: Url, form: Form) -> Option<DataEntry> {
+    let Ok(response) = client
+        .request(form.method, url.clone())
+        .form(&form.text_fields)
+        .send()
+        .await
+    else {
+        return None;
+    };
+    let Ok(data) = response.text().await else {
+        return None;
+    };
+    let mut page = parse_html(&data)?;
+    page.url = Some(url);
+    Some(DataEntry::Webpage(Box::new(page)))
+}
+
 type FetchFuture = JoinHandle<Option<DataEntry>>;
 
 #[derive(Default)]
@@ -534,13 +558,7 @@ impl Toad {
         if let Some(redirect) = &page.debug_info.redirect_to
             && let Ok(url) = options.parse(redirect)
         {
-            let handle = tokio::spawn((async |client: Client, url: Url| {
-                let response = client.get(url.clone()).send().await.ok()?;
-                let data = response.text().await.ok()?;
-                let mut page = parse_html(&data)?;
-                page.url = Some(url);
-                Some(DataEntry::Webpage(Box::new(page)))
-            })(self.client.clone(), url.clone()));
+            let handle = tokio::spawn(get_page(self.client.clone(), url.clone()));
             self.fetches
                 .push((self.current_page_id, url.clone(), handle));
         }
@@ -584,13 +602,7 @@ impl Toad {
                 let Ok(url) = options.parse(path) else {
                     return Ok(());
                 };
-                let handle = tokio::spawn((async |client: Client, url: Url| {
-                    let response = client.get(url.clone()).send().await.ok()?;
-                    let data = response.text().await.ok()?;
-                    let mut page = parse_html(&data)?;
-                    page.url = Some(url);
-                    Some(DataEntry::Webpage(Box::new(page)))
-                })(self.client.clone(), url.clone()));
+                let handle = tokio::spawn(get_page(self.client.clone(), url.clone()));
                 self.fetches
                     .push((self.current_page_id, url.clone(), handle));
                 let mut page = parse_html("<html></html>").unwrap();
@@ -628,29 +640,7 @@ impl Toad {
                     return Ok(());
                 };
 
-                let handle = tokio::spawn(
-                    (async |client: Client, method, url: Url, fields: HashMap<String, String>| {
-                        let Ok(response) = client
-                            .request(method, url.clone())
-                            .form(&fields)
-                            .send()
-                            .await
-                        else {
-                            return None;
-                        };
-                        let Ok(data) = response.text().await else {
-                            return None;
-                        };
-                        let mut page = parse_html(&data)?;
-                        page.url = Some(url);
-                        Some(DataEntry::Webpage(Box::new(page)))
-                    })(
-                        self.client.clone(),
-                        a.method,
-                        url.clone(),
-                        a.text_fields.clone(),
-                    ),
-                );
+                let handle = tokio::spawn(get_page_with_form(self.client.clone(), url.clone(), a));
                 self.fetches
                     .push((self.current_page_id, url.clone(), handle));
                 let mut page = parse_html("<html></html>").unwrap();
@@ -672,15 +662,7 @@ impl Toad {
                 match input_box.on_submit {
                     InputBoxSubmitTarget::ChangeAddress | InputBoxSubmitTarget::OpenNewTab => {
                         if let Ok(url) = Url::from_str(&input_box.text) {
-                            let handle = tokio::spawn((async |client: Client, url: Url| {
-                                let response = client.get(url.clone()).send().await.ok()?;
-                                let data = response.text().await.ok()?;
-                                let mut page = parse_html(&data)?;
-                                page.url = Some(url);
-                                Some(DataEntry::Webpage(Box::new(page)))
-                            })(
-                                self.client.clone(), url.clone()
-                            ));
+                            let handle = tokio::spawn(get_page(self.client.clone(), url.clone()));
                             self.fetches
                                 .push((self.current_page_id, url.clone(), handle));
                             let mut page = parse_html("<html></html>").unwrap();

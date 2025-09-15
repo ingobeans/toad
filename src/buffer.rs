@@ -124,8 +124,10 @@ impl Buffer {
         start_x: usize,
         start_y: usize,
     ) -> io::Result<()> {
-        let mut last = Cell::default();
-        last.background_color = Color::Reset;
+        let mut last = Cell {
+            background_color: Color::Reset,
+            ..Default::default()
+        };
         let mut data = self.data.iter().enumerate();
         let mut prev_data = prev.map(|f| f.data.iter());
 

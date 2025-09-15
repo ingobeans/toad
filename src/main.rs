@@ -558,7 +558,9 @@ impl Toad {
     }
     async fn open_page(&mut self, mut page: Webpage, tab_index: usize) {
         self.handle_new_page(&mut page).await;
-        self.tabs.tabs[tab_index].history.push(page);
+        let tab = &mut self.tabs.tabs[tab_index];
+        tab.history.push(page);
+        tab.future.clear();
     }
     async fn open_page_new_tab(&mut self, mut page: Webpage) {
         if !self.tabs.is_empty() {
@@ -582,7 +584,7 @@ impl Toad {
                     return Ok(());
                 };
                 if let Some(page) = self.get_url(url).await {
-                    self.open_page_new_tab(page).await;
+                    self.open_page(page, self.tab_index).await;
                 }
 
                 self.draw(stdout)?;
@@ -654,9 +656,7 @@ impl Toad {
                         if let Ok(url) = Url::from_str(&input_box.text)
                             && let Some(page) = self.get_url(url).await
                         {
-                            self.tabs.remove(self.tab_index);
-                            self.tab_index = self.tab_index.saturating_sub(1);
-                            self.open_page_new_tab(page).await;
+                            self.open_page(page, self.tab_index).await;
                         }
                         self.draw(stdout)?;
                     }

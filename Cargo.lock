@@ -1352,7 +1352,7 @@ dependencies = [
 
 [[package]]
 name = "toad"
-version = "0.12.11"
+version = "0.12.12"
 dependencies = [
  "base64",
  "box_drawing",

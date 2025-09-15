@@ -60,8 +60,30 @@ pub fn add_panic_handler() {
         if let Some(a) = f.payload().downcast_ref::<String>() {
             p = a.to_string();
         }
-        let a = format!("TOAD panicked at: {:?}\n\nError: {:?}", f.location(), p);
-        std::fs::write("error.txt", a).unwrap();
+        let a = format!(
+            r"  _______ ____          _____  
+ |__   __/ __ \   /\   |  __ \ 
+    | | | |  | | /  \  | |  | |
+    | | | |  | |/ /\ \ | |  | |
+    | | | |__| / ____ \| |__| |
+    |_|  \____/_/    \_\_____/ 
+
+CRASHREPORT - sorry about this :<
+
+Panic at: {:?}
+
+Error: {:?}",
+            f.location(),
+            p
+        );
+        let path = if let Ok(p) = std::env::current_exe()
+            && let Some(d) = p.parent()
+        {
+            d.join("error_log.txt")
+        } else {
+            "error_log.txt".into()
+        };
+        std::fs::write(path, a).unwrap();
     }));
 }
 pub fn remove_whitespace(input: &str) -> String {

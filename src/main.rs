@@ -735,6 +735,7 @@ impl Toad {
                                         } else if mouse_event.column > 5 && mouse_event.column <= 9
                                         {
                                             if let Some(page) = self.tabs.get_mut(self.tab_index) {
+                                                page.scroll_y = 0;
                                                 refresh_style(page, &self.fetched_assets);
                                                 page.cached_draw = None;
                                                 self.prev_buffer = None;
@@ -836,14 +837,7 @@ impl Toad {
                         }
                         event::KeyCode::Char(char) => {
                             let control = key.modifiers.contains(event::KeyModifiers::CONTROL);
-                            if char == 'r' {
-                                if let Some(page) = self.tabs.get_mut(self.tab_index) {
-                                    refresh_style(page, &self.fetched_assets);
-                                    page.cached_draw = None;
-                                    self.prev_buffer = None;
-                                }
-                                self.draw(&stdout)?;
-                            } else if char == 'q' {
+                            if char == 'q' {
                                 running = false;
                             } else if char == 'w' && control {
                                 if self.tab_index < self.tabs.len() {

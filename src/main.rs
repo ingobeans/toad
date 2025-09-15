@@ -650,19 +650,14 @@ impl Toad {
                 queue!(stdout, cursor::Hide)?;
                 self.prev_buffer = None;
                 match input_box.on_submit {
-                    InputBoxSubmitTarget::OpenNewTab => {
-                        if let Ok(url) = Url::from_str(&input_box.text)
-                            && let Some(page) = self.get_url(url).await
-                        {
-                            self.open_page_new_tab(page).await;
-                        }
-                        self.draw(stdout)?;
-                    }
-                    InputBoxSubmitTarget::ChangeAddress => {
+                    InputBoxSubmitTarget::ChangeAddress | InputBoxSubmitTarget::OpenNewTab => {
                         if let Ok(url) = Url::from_str(&input_box.text)
                             && let Some(page) = self.get_url(url).await
                         {
                             self.open_page(page, self.tab_index).await;
+                        } else if let InputBoxSubmitTarget::OpenNewTab = input_box.on_submit {
+                            self.tabs.remove(self.tab_index);
+                            self.tab_index = self.tab_index.saturating_sub(1);
                         }
                         self.draw(stdout)?;
                     }
@@ -684,6 +679,10 @@ impl Toad {
                 self.prev_buffer = None;
                 if let InputBoxSubmitTarget::SetFormTextField(_, _) = input_box.on_submit {
                     self.prev_buffer = None;
+                }
+                if let InputBoxSubmitTarget::OpenNewTab = input_box.on_submit {
+                    self.tabs.remove(self.tab_index);
+                    self.tab_index = self.tab_index.saturating_sub(1);
                 }
                 self.draw(stdout)?;
             }
@@ -945,11 +944,13 @@ impl Toad {
                                     }
                                     self.draw(&stdout)?;
                                 }
-                            } else if char == 'g' {
+                            } else if char == 't' && control {
+                                self.open_page_new_tab(parse_html("<html></html>").unwrap())
+                                    .await;
                                 self.current_input_box = Some(InputBox::new(
-                                    0,
+                                    4 * 3,
                                     1,
-                                    screen_width,
+                                    screen_width - 4 * 3 * 2,
                                     InputBoxSubmitTarget::OpenNewTab,
                                     None,
                                 ));
@@ -1340,8 +1341,8 @@ async fn main() -> io::Result<()> {
     );
     toad.open_page_new_tab(parse_html(include_str!("home.html")).unwrap())
         .await;
-    toad.open_page_new_tab(parse_html(include_str!("test.html")).unwrap())
-        .await;
+    //toad.open_page_new_tab(parse_html(include_str!("test.html")).unwrap())
+    //    .await;
     toad.tab_index = 0;
     toad.run().await
 }

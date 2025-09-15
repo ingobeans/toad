@@ -905,13 +905,19 @@ impl Toad {
                             }
                         }
                         event::KeyCode::Right => {
-                            if let Some(tab) = self.tabs.get_mut(self.tab_index) {
+                            if key.modifiers.contains(event::KeyModifiers::CONTROL) {
+                                self.tabs.tabs[self.tab_index].forwards();
+                                self.draw(&stdout)?;
+                            } else if let Some(tab) = self.tabs.get_mut(self.tab_index) {
                                 tab.tab_index = Some(tab.tab_index.map(|i| i + 1).unwrap_or(0));
                                 self.draw(&stdout)?;
                             }
                         }
                         event::KeyCode::Left => {
-                            if let Some(tab) = self.tabs.get_mut(self.tab_index) {
+                            if key.modifiers.contains(event::KeyModifiers::CONTROL) {
+                                self.tabs.tabs[self.tab_index].backwards();
+                                self.draw(&stdout)?;
+                            } else if let Some(tab) = self.tabs.get_mut(self.tab_index) {
                                 tab.tab_index =
                                     Some(tab.tab_index.map(|i| i.saturating_sub(1)).unwrap_or(0));
                                 self.draw(&stdout)?;

@@ -415,10 +415,12 @@ struct GlobalDrawContext<'a> {
 enum DataType {
     PlainText,
     Image,
+    Webpage,
 }
 enum DataEntry {
     PlainText(String),
     Image(image::DynamicImage),
+    Webpage(Webpage),
 }
 // allow dead code because i sometimes want to use the info_log function for debugging
 #[allow(dead_code)]
@@ -495,6 +497,7 @@ async fn get_data(url: Url, ty: DataType, client: Client) -> Option<DataEntry> {
             let text: String = resp.text().await.ok()?;
             Some(DataEntry::PlainText(text))
         }
+        _ => None,
     }
 }
 
@@ -548,6 +551,7 @@ impl Toad {
 
         refresh_style(page, &self.fetched_assets);
         page.indentifier = self.current_page_id;
+        self.current_page_id += 1;
         for (ty, source) in page.debug_info.fetch_queue.drain(..) {
             let Ok(url) = options.parse(&source) else {
                 continue;
@@ -569,7 +573,6 @@ impl Toad {
             self.tab_index += 1;
         }
         self.handle_new_page(&mut page).await;
-        self.current_page_id += 1;
         self.tabs.insert(self.tab_index, page);
     }
     async fn interact(&mut self, stdout: &Stdout, control_held: bool) -> io::Result<()> {
@@ -585,12 +588,27 @@ impl Toad {
                 let Ok(url) = options.parse(path) else {
                     return Ok(());
                 };
-                if let Some(page) = self.get_url(url).await {
-                    if control_held {
-                        self.open_page_new_tab(page).await;
-                    } else {
-                        self.open_page(page, self.tab_index).await;
-                    }
+                let handle = tokio::spawn((async |client: Client, url: Url| {
+                    let Ok(response) = client.get(url.clone()).send().await else {
+                        return None;
+                    };
+                    let Ok(data) = response.text().await else {
+                        return None;
+                    };
+                    let Some(mut page) = parse_html(&data) else {
+                        return None;
+                    };
+                    page.url = Some(url);
+                    Some(DataEntry::Webpage(page))
+                })(self.client.clone(), url.clone()));
+                self.fetches
+                    .push((self.current_page_id, url.clone(), handle));
+                let mut page = parse_html("<html></html>").unwrap();
+                page.url = Some(url);
+                if control_held {
+                    self.open_page_new_tab(page).await;
+                } else {
+                    self.open_page(page, self.tab_index).await;
                 }
 
                 self.draw(stdout)?;
@@ -620,23 +638,37 @@ impl Toad {
                     return Ok(());
                 };
 
-                let Ok(response) = self
-                    .client
-                    .request(a.method, url.clone())
-                    .form(&a.text_fields)
-                    .send()
-                    .await
-                else {
-                    return Ok(());
-                };
-                let Ok(data) = response.text().await else {
-                    return Ok(());
-                };
-                let Some(mut page) = parse_html(&data) else {
-                    return Ok(());
-                };
+                let handle = tokio::spawn(
+                    (async |client: Client, method, url: Url, fields: HashMap<String, String>| {
+                        let Ok(response) = client
+                            .request(method, url.clone())
+                            .form(&fields)
+                            .send()
+                            .await
+                        else {
+                            return None;
+                        };
+                        let Ok(data) = response.text().await else {
+                            return None;
+                        };
+                        let Some(mut page) = parse_html(&data) else {
+                            return None;
+                        };
+                        page.url = Some(url);
+                        Some(DataEntry::Webpage(page))
+                    })(
+                        self.client.clone(),
+                        a.method,
+                        url.clone(),
+                        a.text_fields.clone(),
+                    ),
+                );
+                self.fetches
+                    .push((self.current_page_id, url.clone(), handle));
+                let mut page = parse_html("<html></html>").unwrap();
                 page.url = Some(url);
                 self.open_page(page, self.tab_index).await;
+                self.draw(stdout)?;
             }
         }
 
@@ -651,9 +683,26 @@ impl Toad {
                 self.prev_buffer = None;
                 match input_box.on_submit {
                     InputBoxSubmitTarget::ChangeAddress | InputBoxSubmitTarget::OpenNewTab => {
-                        if let Ok(url) = Url::from_str(&input_box.text)
-                            && let Some(page) = self.get_url(url).await
-                        {
+                        if let Ok(url) = Url::from_str(&input_box.text) {
+                            let handle = tokio::spawn((async |client: Client, url: Url| {
+                                let Ok(response) = client.get(url.clone()).send().await else {
+                                    return None;
+                                };
+                                let Ok(data) = response.text().await else {
+                                    return None;
+                                };
+                                let Some(mut page) = parse_html(&data) else {
+                                    return None;
+                                };
+                                page.url = Some(url);
+                                Some(DataEntry::Webpage(page))
+                            })(
+                                self.client.clone(), url.clone()
+                            ));
+                            self.fetches
+                                .push((self.current_page_id, url.clone(), handle));
+                            let mut page = parse_html("<html></html>").unwrap();
+                            page.url = Some(url);
                             self.open_page(page, self.tab_index).await;
                         } else if let InputBoxSubmitTarget::OpenNewTab = input_box.on_submit {
                             self.tabs.remove(self.tab_index);
@@ -971,6 +1020,9 @@ impl Toad {
 
             let mut any_changed = false;
             let mut death_queue = Vec::new();
+
+            let mut unhandled_pages = Vec::new();
+
             for (index, (page_id, url, handle)) in self.fetches.iter_mut().enumerate() {
                 if handle.is_finished() {
                     let Ok(polled) = tokio::join!(handle).0 else {
@@ -985,13 +1037,17 @@ impl Toad {
                         }
                         continue;
                     };
-                    self.fetched_assets.insert(url.clone(), data);
+                    any_changed = true;
+                    if let DataEntry::Webpage(webpage) = data {
+                        unhandled_pages.push((*page_id, webpage));
+                    } else {
+                        self.fetched_assets.insert(url.clone(), data);
 
-                    // refresh page with this page_id
-                    if let Some(page) = self.tabs.find_identifier_mut(*page_id) {
-                        refresh_style(page, &self.fetched_assets);
-                        page.cached_draw = None;
-                        any_changed = true;
+                        // refresh page with this page_id
+                        if let Some(page) = self.tabs.find_identifier_mut(*page_id) {
+                            refresh_style(page, &self.fetched_assets);
+                            page.cached_draw = None;
+                        }
                     }
                 }
             }
@@ -1001,6 +1057,14 @@ impl Toad {
                 index += 1;
                 !death_queue.contains(&old)
             });
+
+            for (id, mut page) in unhandled_pages.into_iter() {
+                self.handle_new_page(&mut page).await;
+                if let Some(p) = self.tabs.find_identifier_mut(id) {
+                    *p = page;
+                }
+            }
+
             // if any finished loading
             if any_changed {
                 self.draw(&stdout)?;

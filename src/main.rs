@@ -1005,11 +1005,14 @@ impl Toad {
                     if let DataEntry::Webpage(webpage) = data {
                         unhandled_pages.push((*page_id, webpage));
                     } else {
+                        let is_stylesheet = matches!(data, DataEntry::PlainText(_));
                         self.fetched_assets.insert(url.clone(), data);
 
                         // refresh page with this page_id
                         if let Some(page) = self.tabs.find_identifier_mut(*page_id) {
-                            refresh_style(page, &self.fetched_assets);
+                            if is_stylesheet {
+                                refresh_style(page, &self.fetched_assets);
+                            }
                             page.cached_draw = None;
                         }
                     }

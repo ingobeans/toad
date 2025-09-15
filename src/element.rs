@@ -875,6 +875,26 @@ impl Element {
             parent_form: self_form,
             ..Default::default()
         };
+        if self.ty.name == "li"
+            && let Some(prefix) = parent_draw_ctx.text_prefix
+        {
+            let text = match prefix {
+                TextPrefix::Dot => String::from("• "),
+                // this is a bit of a cheat solution
+                // todo: make actually count child index
+                TextPrefix::Number => format!("{}. ", draw_data.y / LH + 1),
+            };
+            let width = text.width() as u16 * EM;
+            child_data.draw_calls.push(DrawCall::Text(
+                0,
+                0,
+                text,
+                style,
+                child_data.parent_width,
+                None,
+            ));
+            child_data.x += width;
+        }
         for child in self.children.iter() {
             child.draw(style, global_ctx, &mut child_data)?;
             draw_data.content_width = draw_data

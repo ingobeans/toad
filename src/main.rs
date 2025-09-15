@@ -511,6 +511,8 @@ struct Toad {
     cached_resized_images: Vec<(Url, u16, u16, image::DynamicImage)>,
     prev_buffer: Option<Buffer>,
     current_input_box: Option<InputBox>,
+    last_mouse_x: u16,
+    last_mouse_y: u16,
 }
 impl Toad {
     fn new() -> Result<Self, reqwest::Error> {
@@ -713,6 +715,8 @@ impl Toad {
                         let Some(prev) = &self.prev_buffer else {
                             continue;
                         };
+                        (self.last_mouse_x, self.last_mouse_y) =
+                            (mouse_event.column, mouse_event.row);
 
                         if self.current_input_box.is_some() {
                             if let event::MouseEventKind::Down(_) = mouse_event.kind
@@ -821,7 +825,7 @@ impl Toad {
                                             self.tabs.tabs[self.tab_index].backwards();
                                         } else if mouse_event.column <= 5 {
                                             self.tabs.tabs[self.tab_index].forwards();
-                                        } else if mouse_event.column > 5 && mouse_event.column <= 9
+                                        } else if mouse_event.column > 6 && mouse_event.column <= 9
                                         {
                                             if let Some(page) = self.tabs.get_mut(self.tab_index) {
                                                 page.scroll_y = 0;
@@ -1068,6 +1072,15 @@ impl Toad {
             buffer.draw_str(4 * 3, 1, &text, &DEFAULT_DRAW_CTX, None);
         }
 
+        if self.last_mouse_y == 1 {
+            if self.last_mouse_x <= 2 {
+                buffer.draw_rect(0, 1, 3, 1, WHITE_COLOR);
+            } else if self.last_mouse_x <= 5 {
+                buffer.draw_rect(3, 1, 3, 1, WHITE_COLOR);
+            } else if self.last_mouse_x > 6 && self.last_mouse_x <= 9 {
+                buffer.draw_rect(7, 1, 3, 1, WHITE_COLOR);
+            }
+        }
         buffer.draw_str(0, 1, "[←][→] [↻] ", &DEFAULT_DRAW_CTX, None);
     }
     fn draw_current_page(&mut self, mut stdout: &Stdout) -> io::Result<()> {

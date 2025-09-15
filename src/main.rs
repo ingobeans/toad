@@ -64,6 +64,72 @@ impl Webpage {
         String::from("unknown")
     }
 }
+struct Tab {
+    history: Vec<Webpage>,
+    future: Vec<Webpage>,
+}
+impl Tab {
+    fn backwards(&mut self) {
+        if self.history.len() > 1
+            && let Some(p) = self.history.pop()
+        {
+            self.future.push(p);
+        }
+    }
+    fn forwards(&mut self) {
+        if let Some(p) = self.future.pop() {
+            self.history.push(p);
+        }
+    }
+    fn page(&self) -> &Webpage {
+        self.history.last().unwrap()
+    }
+    fn page_mut(&mut self) -> &mut Webpage {
+        self.history.last_mut().unwrap()
+    }
+}
+#[derive(Default)]
+struct TabManager {
+    tabs: Vec<Tab>,
+}
+impl TabManager {
+    fn find_identifier_mut(&mut self, identifier: usize) -> Option<&mut Webpage> {
+        self.tabs
+            .iter_mut()
+            .find(|f| {
+                let page = f.page();
+                page.indentifier == identifier
+            })
+            .map(|f| f.page_mut())
+    }
+    fn len(&self) -> usize {
+        self.tabs.len()
+    }
+    fn iter(&self) -> std::slice::Iter<'_, Tab> {
+        self.tabs.iter()
+    }
+    fn get(&self, index: usize) -> Option<&Webpage> {
+        self.tabs.get(index).map(|f| f.page())
+    }
+    fn get_mut(&mut self, index: usize) -> Option<&mut Webpage> {
+        self.tabs.get_mut(index).map(|f| f.page_mut())
+    }
+    fn is_empty(&self) -> bool {
+        self.tabs.is_empty()
+    }
+    fn insert(&mut self, index: usize, page: Webpage) {
+        self.tabs.insert(
+            index,
+            Tab {
+                history: vec![page],
+                future: Vec::new(),
+            },
+        );
+    }
+    fn remove(&mut self, index: usize) -> Tab {
+        self.tabs.remove(index)
+    }
+}
 
 #[derive(Clone, Copy, PartialEq)]
 enum TextAlignment {
@@ -436,7 +502,7 @@ type FetchFuture = JoinHandle<Option<DataEntry>>;
 
 #[derive(Default)]
 struct Toad {
-    tabs: Vec<Webpage>,
+    tabs: TabManager,
     tab_index: usize,
     client: Client,
     fetched_assets: HashMap<Url, DataEntry>,
@@ -468,20 +534,17 @@ impl Toad {
             f
         })
     }
-    async fn open_page(&mut self, mut page: Webpage) {
-        if !self.tabs.is_empty() {
-            self.tab_index += 1;
-        }
+    async fn handle_new_page(&mut self, page: &mut Webpage) {
         let url = page.url.as_ref().cloned();
         let options = Url::options().base_url(url.as_ref());
         if let Some(redirect) = &page.debug_info.redirect_to
             && let Ok(url) = options.parse(redirect)
             && let Some(new) = self.get_url(url).await
         {
-            page = new;
+            *page = new;
         }
 
-        refresh_style(&mut page, &self.fetched_assets);
+        refresh_style(page, &self.fetched_assets);
         page.indentifier = self.current_page_id;
         for (ty, source) in page.debug_info.fetch_queue.drain(..) {
             let Ok(url) = options.parse(&source) else {
@@ -492,6 +555,16 @@ impl Toad {
                 self.fetches.push((page.indentifier, url, handle));
             }
         }
+    }
+    async fn open_page(&mut self, mut page: Webpage, tab_index: usize) {
+        self.handle_new_page(&mut page).await;
+        self.tabs.tabs[tab_index].history.push(page);
+    }
+    async fn open_page_new_tab(&mut self, mut page: Webpage) {
+        if !self.tabs.is_empty() {
+            self.tab_index += 1;
+        }
+        self.handle_new_page(&mut page).await;
         self.current_page_id += 1;
         self.tabs.insert(self.tab_index, page);
     }
@@ -509,7 +582,7 @@ impl Toad {
                     return Ok(());
                 };
                 if let Some(page) = self.get_url(url).await {
-                    self.open_page(page).await;
+                    self.open_page_new_tab(page).await;
                 }
 
                 self.draw(stdout)?;
@@ -555,9 +628,7 @@ impl Toad {
                     return Ok(());
                 };
                 page.url = Some(url);
-                self.tabs.remove(self.tab_index);
-                self.tab_index = self.tab_index.saturating_sub(1);
-                self.open_page(page).await;
+                self.open_page(page, self.tab_index).await;
             }
         }
 
@@ -575,7 +646,7 @@ impl Toad {
                         if let Ok(url) = Url::from_str(&input_box.text)
                             && let Some(page) = self.get_url(url).await
                         {
-                            self.open_page(page).await;
+                            self.open_page_new_tab(page).await;
                         }
                         self.draw(stdout)?;
                     }
@@ -585,7 +656,7 @@ impl Toad {
                         {
                             self.tabs.remove(self.tab_index);
                             self.tab_index = self.tab_index.saturating_sub(1);
-                            self.open_page(page).await;
+                            self.open_page_new_tab(page).await;
                         }
                         self.draw(stdout)?;
                     }
@@ -682,9 +753,14 @@ impl Toad {
                                         needs_redraw = false;
                                     } else if mouse_event.row == 0 {
                                         let screen_width = terminal::size()?.0 as usize;
-                                        let mut current_tab_width =
-                                            self.tabs[self.tab_index].get_title().trim().width()
-                                                + 3;
+                                        let mut current_tab_width = self
+                                            .tabs
+                                            .get(self.tab_index)
+                                            .unwrap()
+                                            .get_title()
+                                            .trim()
+                                            .width()
+                                            + 3;
                                         if current_tab_width > screen_width - 3 {
                                             current_tab_width = screen_width - 3;
                                         }
@@ -698,7 +774,8 @@ impl Toad {
                                         let mouse_x = mouse_event.column as usize;
                                         let mut x = 0;
                                         for (index, tab) in self.tabs.iter().enumerate() {
-                                            let text = tab.get_title().trim().to_string();
+                                            let page = tab.page();
+                                            let text = page.get_title().trim().to_string();
                                             let w = text.width();
                                             let width = if index == self.tab_index {
                                                 current_tab_width - 3
@@ -731,7 +808,9 @@ impl Toad {
                                             ));
                                             needs_redraw = true;
                                         } else if mouse_event.column <= 2 {
+                                            self.tabs.tabs[self.tab_index].backwards();
                                         } else if mouse_event.column <= 5 {
+                                            self.tabs.tabs[self.tab_index].forwards();
                                         } else if mouse_event.column > 5 && mouse_event.column <= 9
                                         {
                                             if let Some(page) = self.tabs.get_mut(self.tab_index) {
@@ -784,7 +863,7 @@ impl Toad {
                                // .replace("{PAGE}", &page_text);
                                ;
                                 if let Some(page) = parse_html(&html) {
-                                    self.open_page(page).await;
+                                    self.open_page_new_tab(page).await;
                                     self.draw(&stdout)?;
                                 }
                             }
@@ -874,8 +953,7 @@ impl Toad {
                     };
                     death_queue.push(index);
                     let Some(data) = polled else {
-                        if let Some(page) = self.tabs.iter_mut().find(|f| f.indentifier == *page_id)
-                        {
+                        if let Some(page) = self.tabs.find_identifier_mut(*page_id) {
                             page.debug_info
                                 .info_log
                                 .push(format!("Failed to get data of {url}"));
@@ -885,7 +963,7 @@ impl Toad {
                     self.fetched_assets.insert(url.clone(), data);
 
                     // refresh page with this page_id
-                    if let Some(page) = self.tabs.iter_mut().find(|f| f.indentifier == *page_id) {
+                    if let Some(page) = self.tabs.find_identifier_mut(*page_id) {
                         refresh_style(page, &self.fetched_assets);
                         page.cached_draw = None;
                         any_changed = true;
@@ -924,7 +1002,14 @@ impl Toad {
     }
     fn draw_topbar(&self, buffer: &mut Buffer) {
         let screen_width = terminal::size().unwrap().0 as usize;
-        let mut current_tab_width = self.tabs[self.tab_index].get_title().trim().width() + 3;
+        let mut current_tab_width = self
+            .tabs
+            .get(self.tab_index)
+            .unwrap()
+            .get_title()
+            .trim()
+            .width()
+            + 3;
         if current_tab_width > screen_width - 3 {
             current_tab_width = screen_width - 3;
         }
@@ -937,7 +1022,8 @@ impl Toad {
         buffer.draw_rect(0, 0, screen_width as _, 3, GREY_COLOR);
         let mut x = 0;
         for (index, tab) in self.tabs.iter().enumerate() {
-            let mut text = tab.get_title().trim().to_string();
+            let page = tab.page();
+            let mut text = page.get_title().trim().to_string();
             let w = text.width();
             if index == self.tab_index {
                 if w > current_tab_width - 3 {
@@ -1225,9 +1311,9 @@ async fn main() -> io::Result<()> {
         Url::parse("toad://toad.png").unwrap(),
         DataEntry::Image(image::load_from_memory(include_bytes!("toad.png")).unwrap()),
     );
-    toad.open_page(parse_html(include_str!("home.html")).unwrap())
+    toad.open_page_new_tab(parse_html(include_str!("home.html")).unwrap())
         .await;
-    toad.open_page(parse_html(include_str!("test.html")).unwrap())
+    toad.open_page_new_tab(parse_html(include_str!("test.html")).unwrap())
         .await;
     toad.tab_index = 0;
     toad.run().await

@@ -415,12 +415,11 @@ struct GlobalDrawContext<'a> {
 enum DataType {
     PlainText,
     Image,
-    Webpage,
 }
 enum DataEntry {
     PlainText(String),
     Image(image::DynamicImage),
-    Webpage(Webpage),
+    Webpage(Box<Webpage>),
 }
 // allow dead code because i sometimes want to use the info_log function for debugging
 #[allow(dead_code)]
@@ -497,7 +496,6 @@ async fn get_data(url: Url, ty: DataType, client: Client) -> Option<DataEntry> {
             let text: String = resp.text().await.ok()?;
             Some(DataEntry::PlainText(text))
         }
-        _ => None,
     }
 }
 
@@ -589,17 +587,11 @@ impl Toad {
                     return Ok(());
                 };
                 let handle = tokio::spawn((async |client: Client, url: Url| {
-                    let Ok(response) = client.get(url.clone()).send().await else {
-                        return None;
-                    };
-                    let Ok(data) = response.text().await else {
-                        return None;
-                    };
-                    let Some(mut page) = parse_html(&data) else {
-                        return None;
-                    };
+                    let response = client.get(url.clone()).send().await.ok()?;
+                    let data = response.text().await.ok()?;
+                    let mut page = parse_html(&data)?;
                     page.url = Some(url);
-                    Some(DataEntry::Webpage(page))
+                    Some(DataEntry::Webpage(Box::new(page)))
                 })(self.client.clone(), url.clone()));
                 self.fetches
                     .push((self.current_page_id, url.clone(), handle));
@@ -651,11 +643,9 @@ impl Toad {
                         let Ok(data) = response.text().await else {
                             return None;
                         };
-                        let Some(mut page) = parse_html(&data) else {
-                            return None;
-                        };
+                        let mut page = parse_html(&data)?;
                         page.url = Some(url);
-                        Some(DataEntry::Webpage(page))
+                        Some(DataEntry::Webpage(Box::new(page)))
                     })(
                         self.client.clone(),
                         a.method,
@@ -685,17 +675,11 @@ impl Toad {
                     InputBoxSubmitTarget::ChangeAddress | InputBoxSubmitTarget::OpenNewTab => {
                         if let Ok(url) = Url::from_str(&input_box.text) {
                             let handle = tokio::spawn((async |client: Client, url: Url| {
-                                let Ok(response) = client.get(url.clone()).send().await else {
-                                    return None;
-                                };
-                                let Ok(data) = response.text().await else {
-                                    return None;
-                                };
-                                let Some(mut page) = parse_html(&data) else {
-                                    return None;
-                                };
+                                let response = client.get(url.clone()).send().await.ok()?;
+                                let data = response.text().await.ok()?;
+                                let mut page = parse_html(&data)?;
                                 page.url = Some(url);
-                                Some(DataEntry::Webpage(page))
+                                Some(DataEntry::Webpage(Box::new(page)))
                             })(
                                 self.client.clone(), url.clone()
                             ));
@@ -1061,7 +1045,7 @@ impl Toad {
             for (id, mut page) in unhandled_pages.into_iter() {
                 self.handle_new_page(&mut page).await;
                 if let Some(p) = self.tabs.find_identifier_mut(id) {
-                    *p = page;
+                    *p = *page;
                 }
             }
 

@@ -528,23 +528,21 @@ impl Toad {
             ..Default::default()
         })
     }
-    async fn get_url(&self, url: Url) -> Option<Webpage> {
-        let response = self.client.get(url.clone()).send().await.ok()?;
-        let data = response.text().await.ok()?;
-        let page = parse_html(&data);
-        page.map(|mut f| {
-            f.url = Some(url);
-            f
-        })
-    }
     async fn handle_new_page(&mut self, page: &mut Webpage) {
         let url = page.url.as_ref().cloned();
         let options = Url::options().base_url(url.as_ref());
         if let Some(redirect) = &page.debug_info.redirect_to
             && let Ok(url) = options.parse(redirect)
-            && let Some(new) = self.get_url(url).await
         {
-            *page = new;
+            let handle = tokio::spawn((async |client: Client, url: Url| {
+                let response = client.get(url.clone()).send().await.ok()?;
+                let data = response.text().await.ok()?;
+                let mut page = parse_html(&data)?;
+                page.url = Some(url);
+                Some(DataEntry::Webpage(Box::new(page)))
+            })(self.client.clone(), url.clone()));
+            self.fetches
+                .push((self.current_page_id, url.clone(), handle));
         }
 
         refresh_style(page, &self.fetched_assets);

@@ -570,7 +570,7 @@ impl Toad {
         self.current_page_id += 1;
         self.tabs.insert(self.tab_index, page);
     }
-    async fn interact(&mut self, stdout: &Stdout) -> io::Result<()> {
+    async fn interact(&mut self, stdout: &Stdout, control_held: bool) -> io::Result<()> {
         let Some(tab) = self.tabs.get_mut(self.tab_index) else {
             return Ok(());
         };
@@ -584,7 +584,11 @@ impl Toad {
                     return Ok(());
                 };
                 if let Some(page) = self.get_url(url).await {
-                    self.open_page(page, self.tab_index).await;
+                    if control_held {
+                        self.open_page_new_tab(page).await;
+                    } else {
+                        self.open_page(page, self.tab_index).await;
+                    }
                 }
 
                 self.draw(stdout)?;
@@ -749,7 +753,13 @@ impl Toad {
                                 event::MouseEventKind::Down(_) => {
                                     if mouse_event.row >= 3 {
                                         // handle click interactable
-                                        self.interact(&stdout).await?;
+                                        self.interact(
+                                            &stdout,
+                                            mouse_event
+                                                .modifiers
+                                                .contains(event::KeyModifiers::CONTROL),
+                                        )
+                                        .await?;
                                         needs_redraw = false;
                                     } else if mouse_event.row == 0 {
                                         let screen_width = terminal::size()?.0 as usize;
@@ -841,7 +851,11 @@ impl Toad {
                 } else {
                     match key.code {
                         event::KeyCode::Enter => {
-                            self.interact(&stdout).await?;
+                            self.interact(
+                                &stdout,
+                                key.modifiers.contains(event::KeyModifiers::CONTROL),
+                            )
+                            .await?;
                         }
                         event::KeyCode::F(12) => {
                             if let Some(tab) = self.tabs.get(self.tab_index) {

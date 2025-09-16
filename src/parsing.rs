@@ -107,7 +107,7 @@ pub fn parse_html(text: &str) -> Option<Webpage> {
     let mut buf: Vec<char> = text.trim().chars().collect();
     buf.reverse();
     let mut debug_info = WebpageDebugInfo::default();
-    let root = parse(&mut buf, &mut debug_info).pop();
+    let root = parse(&mut buf, &mut debug_info, None).pop();
     let mut title = None;
     if let Some(root) = &root {
         title = find_title(root).map(|element| element.text.clone().unwrap());
@@ -166,7 +166,11 @@ fn handle_new_element(element: &Element, debug_info: &mut WebpageDebugInfo) {
     }
 }
 
-pub fn parse(buf: &mut Vec<char>, debug_info: &mut WebpageDebugInfo) -> Vec<Element> {
+fn parse(
+    buf: &mut Vec<char>,
+    debug_info: &mut WebpageDebugInfo,
+    parent_tag_type: Option<String>,
+) -> Vec<Element> {
     let mut elements = Vec::new();
     let mut state = ParseState::WaitingForElement;
     while let Some(char) = buf.pop() {
@@ -179,7 +183,8 @@ pub fn parse(buf: &mut Vec<char>, debug_info: &mut WebpageDebugInfo) -> Vec<Elem
                         element.set_attributes(attributes);
                         handle_new_element(&element, debug_info);
                         if !element.ty.void_element && !element.ty.stops_parsing {
-                            element.children = parse(buf, debug_info);
+                            element.children =
+                                parse(buf, debug_info, Some(element.ty.name.to_string()));
                         } else if element.ty.stops_parsing {
                             let chars: Vec<char> = format!("</{name}>").chars().collect();
                             let text = pop_until_all(buf, &chars);
@@ -201,7 +206,7 @@ pub fn parse(buf: &mut Vec<char>, debug_info: &mut WebpageDebugInfo) -> Vec<Elem
                     }
                     continue;
                 } else if char.is_whitespace() {
-                    let (key, end) = pop_until_any(buf, &['=', '/', '>']);
+                    let (key, end) = pop_until_any(buf, &['=', '/', '>', ' ']);
                     let Some(end) = end else {
                         continue;
                     };
@@ -244,8 +249,22 @@ pub fn parse(buf: &mut Vec<char>, debug_info: &mut WebpageDebugInfo) -> Vec<Elem
             ParseState::WaitingForElement => {
                 if char == '<' {
                     if next_is(buf, &'/') {
-                        pop_until(buf, &'>');
-                        return elements;
+                        // this is where we return to parent,
+                        // because we reached the parent element's closing tag
+                        // but first we validate that it does indeed match the parent's tag type
+                        // because if it doesnt, it means the html is broken,
+                        // so we skip it, in hopes that the rest of the html is salveagable
+                        buf.pop();
+                        let closing_tag = pop_until(buf, &'>');
+                        let closing_tag = closing_tag.iter().collect::<String>().trim().to_string();
+                        if parent_tag_type
+                            .as_ref()
+                            .is_none_or(|tag| tag == &closing_tag)
+                        {
+                            return elements;
+                        } else {
+                            continue;
+                        }
                     }
                     if next_is(buf, &'!') {
                         buf.pop();

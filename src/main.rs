@@ -805,7 +805,7 @@ impl Toad {
                                     tab.scroll_y = tab.scroll_y.saturating_sub(1);
                                     needs_redraw = true;
                                 }
-                                event::MouseEventKind::Down(_) => {
+                                event::MouseEventKind::Down(mouse_button) => {
                                     if mouse_event.row >= 3 {
                                         // handle click interactable
                                         self.interact(
@@ -839,6 +839,8 @@ impl Toad {
                                         // click tab bar
                                         let mouse_x = mouse_event.column as usize;
                                         let mut x = 0;
+                                        let mut pressed_tab_index = None;
+
                                         for (index, tab) in self.tabs.iter().enumerate() {
                                             let page = tab.page();
                                             let text = page.get_title().trim().to_string();
@@ -854,9 +856,24 @@ impl Toad {
                                             let old = x;
                                             x += width + 3;
                                             if (old..x).contains(&mouse_x) {
-                                                self.tab_index = index;
-                                                needs_redraw = true;
+                                                pressed_tab_index = Some(index);
                                                 break;
+                                            }
+                                        }
+                                        if let Some(pressed_tab_index) = pressed_tab_index {
+                                            match mouse_button {
+                                                event::MouseButton::Left => {
+                                                    self.tab_index = pressed_tab_index;
+                                                    needs_redraw = true;
+                                                }
+                                                event::MouseButton::Middle => {
+                                                    self.tabs.remove(pressed_tab_index);
+                                                    if self.tabs.is_empty() {
+                                                        break;
+                                                    }
+                                                    needs_redraw = true;
+                                                }
+                                                _ => {}
                                             }
                                         }
                                     } else if mouse_event.row == 1 {

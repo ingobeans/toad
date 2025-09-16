@@ -776,6 +776,7 @@ impl Element {
                 } else if let Some(height) = height
                     && height > 0
                 {
+                    height_pixels = height;
                     width_pixels =
                         (height as f32 * source_size.0 as f32 / source_size.1 as f32) as u16;
                 } else {
@@ -789,11 +790,8 @@ impl Element {
                     ActualMeasurement::Pixels(height_pixels),
                     url,
                 ));
-                draw_data.content_width =
-                    draw_data.content_width.max(actual_width.get_pixels_lossy());
-                draw_data.content_height = draw_data
-                    .content_height
-                    .max(actual_height.get_pixels_lossy());
+                draw_data.content_width = draw_data.content_width.max(width_pixels);
+                draw_data.content_height = draw_data.content_height.max(height_pixels);
             } else {
                 // make sure that there **never** exists any unfulfilled Waiting promises.
                 // we have to do this here for images, since they have an early return
@@ -808,7 +806,7 @@ impl Element {
             }
 
             draw_data.last_was_inline_and_sized = false;
-            draw_data.x += actual_width.get_pixels_lossy();
+            draw_data.x += width_pixels;
             if is_display_block && height_pixels > 0 {
                 draw_data.y += height_pixels;
                 draw_data.x = 0;

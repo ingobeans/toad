@@ -256,6 +256,9 @@ impl Buffer {
     pub fn draw_img_row(&mut self, x: u16, y: u16, row: u32, image: &DynamicImage) {
         for column in 0..image.width() {
             let index = column as usize + x as usize + y as usize * self.width;
+            if index >= self.data.len() {
+                return;
+            }
             let background_color = self.data[index].background_color;
             let top_rgba = image.get_pixel(column as _, row as _).0;
             let top_color = if top_rgba[3] == 0 {

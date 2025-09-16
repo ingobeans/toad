@@ -5,7 +5,7 @@ TOAD is a CLI web browser written in Rust. It is built from the ground up with a
 
 <img width="956" height="281" alt="banner" src="https://github.com/user-attachments/assets/62c67377-f0ff-4fcd-b951-bf644861f79c" />
 
-TOAD does not support JavaScript, and never will. It does however, to a limited degree, support CSS styling. It also supports images! (albeit downscaled so much they become pixel art)
+TOAD does not support JavaScript, and never will. It does however, to a limited degree, support CSS styling, as well as HTML forms (making search engines like duckduckgo usable). It also supports images! (albeit downscaled so much they become pixel art)
 
 Most pages will probably not look good in TOAD, or even load, so here's a list of tested websites that (mostly) work:
 - [SerenityOS](https://serenityos.org/)

@@ -605,7 +605,7 @@ impl Toad {
                 let handle = tokio::spawn(get_page(self.client.clone(), url.clone()));
                 self.fetches
                     .push((self.current_page_id, url.clone(), handle));
-                let mut page = parse_html("<html></html>").unwrap();
+                let mut page = parse_html(include_str!("loading.html")).unwrap();
                 page.url = Some(url);
                 if control_held {
                     self.open_page_new_tab(page).await;
@@ -643,7 +643,7 @@ impl Toad {
                 let handle = tokio::spawn(get_page_with_form(self.client.clone(), url.clone(), a));
                 self.fetches
                     .push((self.current_page_id, url.clone(), handle));
-                let mut page = parse_html("<html></html>").unwrap();
+                let mut page = parse_html(include_str!("loading.html")).unwrap();
                 page.url = Some(url);
                 self.open_page(page, self.tab_index).await;
                 self.draw(stdout)?;
@@ -665,7 +665,7 @@ impl Toad {
                             let handle = tokio::spawn(get_page(self.client.clone(), url.clone()));
                             self.fetches
                                 .push((self.current_page_id, url.clone(), handle));
-                            let mut page = parse_html("<html></html>").unwrap();
+                            let mut page = parse_html(include_str!("loading.html")).unwrap();
                             page.url = Some(url);
                             self.open_page(page, self.tab_index).await;
                         } else if let InputBoxSubmitTarget::OpenNewTab = input_box.on_submit {
@@ -964,8 +964,10 @@ impl Toad {
                                     self.draw(&stdout)?;
                                 }
                             } else if char == 't' && control {
-                                self.open_page_new_tab(parse_html("<html></html>").unwrap())
-                                    .await;
+                                self.open_page_new_tab(
+                                    parse_html(include_str!("blank.html")).unwrap(),
+                                )
+                                .await;
                                 self.current_input_box = Some(InputBox::new(
                                     4 * 3,
                                     1,

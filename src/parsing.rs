@@ -217,9 +217,7 @@ pub fn parse(buf: &mut Vec<char>, debug_info: &mut WebpageDebugInfo) -> Vec<Elem
                     let value = if let Some(char) = buf.last() {
                         if *char != '"' && *char != '\'' {
                             let (value, hit) = pop_until_any(buf, &[' ', '>']);
-                            if let Some(hit) = hit
-                                && hit == '>'
-                            {
+                            if let Some(hit) = hit {
                                 buf.push(hit);
                             }
                             value.iter().collect::<String>().trim().to_string()

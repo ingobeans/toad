@@ -731,7 +731,12 @@ impl Toad {
         let mut screen_size = terminal::size()?;
         self.draw(&stdout, screen_size)?;
         while running {
-            screen_size = terminal::size()?;
+            let new_screen_size = terminal::size()?;
+            if new_screen_size != screen_size {
+                screen_size = new_screen_size;
+                self.prev_buffer = None;
+                self.draw(&stdout, screen_size)?;
+            }
             if event::poll(Duration::from_millis(100))? {
                 let event = event::read()?;
                 if !event.is_key_press() {

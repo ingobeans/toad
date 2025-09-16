@@ -705,6 +705,14 @@ impl Toad {
         }
         Ok(())
     }
+    fn refresh_page(&mut self, tab_index: usize) {
+        if let Some(page) = self.tabs.get_mut(tab_index) {
+            page.scroll_y = 0;
+            refresh_style(page, &self.fetched_assets);
+            page.cached_draw = None;
+            self.prev_buffer = None;
+        }
+    }
     async fn run(&mut self) -> io::Result<()> {
         add_panic_handler();
         let mut running = true;
@@ -820,6 +828,7 @@ impl Toad {
                                             }
                                         }
                                     } else if mouse_event.row == 1 {
+                                        needs_redraw = true;
                                         if mouse_event.column >= 4 * 3
                                             && mouse_event.column < screen_width - 4 * 3
                                         {
@@ -839,13 +848,7 @@ impl Toad {
                                             self.tabs.tabs[self.tab_index].forwards();
                                         } else if mouse_event.column > 6 && mouse_event.column <= 9
                                         {
-                                            if let Some(page) = self.tabs.get_mut(self.tab_index) {
-                                                page.scroll_y = 0;
-                                                refresh_style(page, &self.fetched_assets);
-                                                page.cached_draw = None;
-                                                self.prev_buffer = None;
-                                            }
-                                            self.draw(&stdout)?;
+                                            self.refresh_page(self.tab_index)
                                         }
                                     }
                                 }
@@ -954,6 +957,9 @@ impl Toad {
                             let control = key.modifiers.contains(event::KeyModifiers::CONTROL);
                             if char == 'q' {
                                 running = false;
+                            } else if char == 'r' && control {
+                                self.refresh_page(self.tab_index);
+                                self.draw(&stdout)?;
                             } else if char == 'w' && control {
                                 if self.tab_index < self.tabs.len() {
                                     self.tabs.remove(self.tab_index);

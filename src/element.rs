@@ -210,6 +210,18 @@ pub static ELEMENT_TYPES: &[ElementType] = &[
         ..EM_TAG
     },
     ElementType {
+        name: "details",
+        ..DIV
+    },
+    ElementType {
+        name: "summary",
+        ..SPAN
+    },
+    ElementType {
+        name: "textarea",
+        ..PRE
+    },
+    ElementType {
         name: "blockquote",
         ..PRE
     },

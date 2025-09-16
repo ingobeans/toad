@@ -6,7 +6,7 @@ use crate::{
     consts::*, css, parsing::parse_special,
 };
 use crossterm::style;
-use reqwest::Method;
+use reqwest::{Method, Url};
 use unicode_width::UnicodeWidthStr;
 
 const RED: style::Color = style::Color::Red;
@@ -320,8 +320,6 @@ pub static ELEMENT_TYPES: &[ElementType] = &[
         name: "img",
         void_element: true,
         draw_ctx: ElementDrawContext {
-            width: Specified(Measurement::Pixels(25 * EM)),
-            height: Specified(Measurement::Pixels(10 * LH)),
             display: Specified(Display::Block),
             ..DEFAULT_DRAW_CTX
         },
@@ -748,41 +746,71 @@ impl Element {
         );
 
         if self.ty.name == "img" {
-            // make sure that there **never** exists any unfulfilled Waiting promises.
-            // we have to do this here for images, since they have an early return
-            if let ActualMeasurement::Waiting(wi) = actual_width {
-                actual_width = ActualMeasurement::Pixels(0);
-                global_ctx.unknown_sized_elements[wi] = Some(actual_width);
-            }
-            if let ActualMeasurement::Waiting(hi) = actual_height {
-                actual_height = ActualMeasurement::Pixels(0);
-                global_ctx.unknown_sized_elements[hi] = Some(actual_height);
-            }
+            let mut height_pixels = 0;
+            let mut width_pixels = 0;
             if let Some(source) = self.get_attribute("src")
-                && actual_width.get_pixels_lossy() > 0
-                && actual_height.get_pixels_lossy() > 0
+                && let Ok(url) = {
+                    if let Some(base) = global_ctx.base_url {
+                        base.join(&source)
+                    } else {
+                        Url::parse(&source)
+                    }
+                }
+                && let Some(source_size) = global_ctx.cached_image_sizes.get(&url)
             {
+                let width = actual_width.get_pixels();
+                let height = actual_height.get_pixels();
+
+                if let Some(width) = width
+                    && width > 0
+                {
+                    if let Some(height) = height
+                        && height > 0
+                    {
+                        width_pixels = width;
+                        height_pixels = height;
+                    } else {
+                        height_pixels =
+                            (width as f32 * source_size.1 as f32 / source_size.0 as f32) as u16;
+                    }
+                } else if let Some(height) = height
+                    && height > 0
+                {
+                    width_pixels =
+                        (height as f32 * source_size.0 as f32 / source_size.1 as f32) as u16;
+                } else {
+                    (width_pixels, height_pixels) = *source_size;
+                }
+
                 draw_data.draw_calls.push(DrawCall::Image(
                     draw_data.x,
                     draw_data.y,
-                    actual_width,
-                    actual_height,
-                    source.clone(),
+                    ActualMeasurement::Pixels(width_pixels),
+                    ActualMeasurement::Pixels(height_pixels),
+                    url,
                 ));
                 draw_data.content_width =
                     draw_data.content_width.max(actual_width.get_pixels_lossy());
                 draw_data.content_height = draw_data
                     .content_height
                     .max(actual_height.get_pixels_lossy());
+            } else {
+                // make sure that there **never** exists any unfulfilled Waiting promises.
+                // we have to do this here for images, since they have an early return
+                if let ActualMeasurement::Waiting(wi) = actual_width {
+                    actual_width = ActualMeasurement::Pixels(0);
+                    global_ctx.unknown_sized_elements[wi] = Some(actual_width);
+                }
+                if let ActualMeasurement::Waiting(hi) = actual_height {
+                    actual_height = ActualMeasurement::Pixels(0);
+                    global_ctx.unknown_sized_elements[hi] = Some(actual_height);
+                }
             }
 
             draw_data.last_was_inline_and_sized = false;
             draw_data.x += actual_width.get_pixels_lossy();
-            if is_display_block
-                && let Some(h) = actual_height.get_pixels()
-                && h > 0
-            {
-                draw_data.y += h;
+            if is_display_block && height_pixels > 0 {
+                draw_data.y += height_pixels;
                 draw_data.x = 0;
             }
             return Ok(());

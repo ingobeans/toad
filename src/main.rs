@@ -336,7 +336,7 @@ fn refresh_style(page: &mut Webpage, assets: &HashMap<Url, DataEntry>) {
 #[derive(PartialEq, Clone)]
 enum DrawCall {
     /// X, Y, W, H, Image Source Link
-    Image(u16, u16, ActualMeasurement, ActualMeasurement, String),
+    Image(u16, u16, ActualMeasurement, ActualMeasurement, Url),
     /// X, Y, W, H, Color
     Rect(u16, u16, ActualMeasurement, ActualMeasurement, style::Color),
     /// X, Y, Text, DrawContext, Parent Width, Parent Interactable
@@ -408,8 +408,10 @@ struct GlobalDrawContext<'a> {
     unknown_sized_elements: Vec<Option<ActualMeasurement>>,
     /// Keeps track of interactable elements
     interactables: Vec<Interactable>,
-
     forms: Vec<Form>,
+    /// Known sizes of images
+    cached_image_sizes: HashMap<Url, (u16, u16)>,
+    base_url: &'a Option<Url>,
 }
 #[derive(Clone, Debug)]
 enum DataType {
@@ -1178,11 +1180,21 @@ impl Toad {
         }
         buffer.draw_str(0, 1, "[←][→] [↻] ", &DEFAULT_DRAW_CTX, None);
     }
+    fn generate_cached_image_sizes(&self) -> HashMap<Url, (u16, u16)> {
+        let mut map = HashMap::new();
+        for (url, v) in self.fetched_assets.iter() {
+            if let DataEntry::Image(img) = v {
+                map.insert(url.clone(), (img.width() as u16, img.height() as u16));
+            }
+        }
+        map
+    }
     fn draw_current_page(
         &mut self,
         mut stdout: &Stdout,
         screen_size: (u16, u16),
     ) -> io::Result<()> {
+        let cached_image_sizes = self.generate_cached_image_sizes();
         let Some(tab) = self.tabs.get_mut(self.tab_index) else {
             return Ok(());
         };
@@ -1196,6 +1208,8 @@ impl Toad {
                 global_style: &tab.global_style,
                 interactables: Vec::new(),
                 forms: Vec::new(),
+                cached_image_sizes,
+                base_url: &tab.url,
             };
             let mut draw_data = DrawData {
                 parent_width: ActualMeasurement::Pixels(screen_width * EM),
@@ -1256,10 +1270,7 @@ impl Toad {
 
                     buffer.draw_rect(x, y, w, h, color);
                 }
-                DrawCall::Image(x, y, w, h, source) => {
-                    let Ok(url) = Url::options().base_url(tab.url.as_ref()).parse(&source) else {
-                        continue;
-                    };
+                DrawCall::Image(x, y, w, h, url) => {
                     let Some(DataEntry::Image(image)) = self.fetched_assets.get(&url) else {
                         continue;
                     };

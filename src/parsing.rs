@@ -5,7 +5,7 @@ use reqwest::Url;
 
 use crate::{
     DataEntry, DataType, Webpage, WebpageDebugInfo,
-    element::{self, DEFAULT_ELEMENT_TYPE, Element, ElementType, NODE},
+    element::{self, Element, ElementType, NODE, UNKNOWN_ELEMENT_TYPE},
     utils::*,
 };
 
@@ -124,7 +124,7 @@ fn get_element_type(name: &str, debug_info: &mut WebpageDebugInfo) -> &'static E
         if !debug_info.unknown_elements.iter().any(|s| s == name) {
             debug_info.unknown_elements.push(name.to_string());
         };
-        &DEFAULT_ELEMENT_TYPE
+        &UNKNOWN_ELEMENT_TYPE
     })
 }
 fn element_to_datatype(element: &Element) -> Option<(DataType, String)> {

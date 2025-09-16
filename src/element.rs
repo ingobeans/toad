@@ -20,10 +20,18 @@ pub struct ElementType {
     pub draw_ctx: ElementDrawContext,
 }
 pub static DEFAULT_ELEMENT_TYPE: ElementType = ElementType {
-    name: "unknown",
+    name: "default",
     stops_parsing: false,
     void_element: false,
     draw_ctx: DEFAULT_DRAW_CTX,
+};
+pub static UNKNOWN_ELEMENT_TYPE: ElementType = ElementType {
+    draw_ctx: ElementDrawContext {
+        width: Specified(Measurement::FitContentWidth),
+        height: Specified(Measurement::FitContentHeight),
+        ..DEFAULT_DRAW_CTX
+    },
+    ..DEFAULT_ELEMENT_TYPE
 };
 pub static NODE: ElementType = ElementType {
     name: "node",

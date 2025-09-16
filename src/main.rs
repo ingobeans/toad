@@ -38,7 +38,7 @@ struct CachedDraw {
     forms: Vec<Form>,
 }
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 struct Webpage {
     indentifier: usize,
     title: Option<String>,
@@ -577,6 +577,10 @@ impl Toad {
         }
     }
     async fn open_page(&mut self, mut page: Webpage, tab_index: usize) {
+        if self.tabs.is_empty() {
+            self.open_page_new_tab(page).await;
+            return;
+        }
         self.handle_new_page(&mut page).await;
         let tab = &mut self.tabs.tabs[tab_index];
         tab.history.push(page);
@@ -657,6 +661,23 @@ impl Toad {
 
         Ok(())
     }
+    async fn set_url(&mut self, url: Url) {
+        let page = if let Some(page) = self.fetched_assets.get(&url)
+            && let DataEntry::Webpage(page) = page
+        {
+            let mut page = (**page).clone();
+            page.url = Some(url);
+            page
+        } else {
+            let handle = tokio::spawn(get_page(self.client.clone(), url.clone()));
+            self.fetches
+                .push((self.current_page_id, url.clone(), handle));
+            let mut page = parse_html(include_str!("loading.html")).unwrap();
+            page.url = Some(url);
+            page
+        };
+        self.open_page(page, self.tab_index).await;
+    }
     async fn handle_input_box_state(
         &mut self,
         mut stdout: &Stdout,
@@ -671,12 +692,7 @@ impl Toad {
                 match input_box.on_submit {
                     InputBoxSubmitTarget::ChangeAddress | InputBoxSubmitTarget::OpenNewTab => {
                         if let Ok(url) = Url::from_str(&input_box.text) {
-                            let handle = tokio::spawn(get_page(self.client.clone(), url.clone()));
-                            self.fetches
-                                .push((self.current_page_id, url.clone(), handle));
-                            let mut page = parse_html(include_str!("loading.html")).unwrap();
-                            page.url = Some(url);
-                            self.open_page(page, self.tab_index).await;
+                            self.set_url(url).await;
                         } else if let InputBoxSubmitTarget::OpenNewTab = input_box.on_submit {
                             self.tabs.remove(self.tab_index);
                             self.tab_index = self.tab_index.saturating_sub(1);
@@ -1404,11 +1420,11 @@ async fn main() -> io::Result<()> {
         Url::parse("toad://toad.png").unwrap(),
         DataEntry::Image(image::load_from_memory(include_bytes!("toad.png")).unwrap()),
     );
-    toad.open_page_new_tab(parse_html(include_str!("home.html")).unwrap())
-        .await;
-    //toad.open_page_new_tab(parse_html(include_str!("test.html")).unwrap())
-    //    .await;
-    toad.tab_index = 0;
+    toad.fetched_assets.insert(
+        Url::parse("toad://home").unwrap(),
+        DataEntry::Webpage(Box::new(parse_html(include_str!("home.html")).unwrap())),
+    );
+    toad.set_url(Url::parse("toad://home").unwrap()).await;
     toad.run().await
 }
 

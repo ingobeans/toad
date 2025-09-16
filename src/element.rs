@@ -506,6 +506,7 @@ pub struct DrawData {
     /// and had a non-zero width. Used to tell whether a leading whitespace should be allowed for text.
     pub last_was_inline_and_sized: bool,
 }
+#[derive(Clone)]
 pub struct Element {
     pub ty: &'static ElementType,
     pub children: Vec<Element>,

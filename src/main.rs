@@ -589,7 +589,12 @@ impl Toad {
         self.handle_new_page(&mut page).await;
         self.tabs.insert(self.tab_index, page);
     }
-    async fn interact(&mut self, stdout: &Stdout, control_held: bool) -> io::Result<()> {
+    async fn interact(
+        &mut self,
+        stdout: &Stdout,
+        control_held: bool,
+        screen_size: (u16, u16),
+    ) -> io::Result<()> {
         let Some(tab) = self.tabs.get_mut(self.tab_index) else {
             return Ok(());
         };
@@ -613,7 +618,7 @@ impl Toad {
                     self.open_page(page, self.tab_index).await;
                 }
 
-                self.draw(stdout)?;
+                self.draw(stdout, screen_size)?;
             }
             Interactable::InputText(index, name, width, pos) => {
                 let Some(cached) = &mut tab.cached_draw else {
@@ -628,7 +633,7 @@ impl Toad {
                     cached.forms[*index].text_fields.get(name).cloned(),
                 ));
                 self.prev_buffer = None;
-                self.draw(stdout)?;
+                self.draw(stdout, screen_size)?;
             }
             Interactable::InputSubmit(index) => {
                 let Some(mut cached) = tab.cached_draw.take() else {
@@ -646,13 +651,17 @@ impl Toad {
                 let mut page = parse_html(include_str!("loading.html")).unwrap();
                 page.url = Some(url);
                 self.open_page(page, self.tab_index).await;
-                self.draw(stdout)?;
+                self.draw(stdout, screen_size)?;
             }
         }
 
         Ok(())
     }
-    async fn handle_input_box_state(&mut self, mut stdout: &Stdout) -> io::Result<()> {
+    async fn handle_input_box_state(
+        &mut self,
+        mut stdout: &Stdout,
+        screen_size: (u16, u16),
+    ) -> io::Result<()> {
         let input_box = self.current_input_box.as_mut().unwrap();
         match &input_box.state {
             InputBoxState::Submitted => {
@@ -672,7 +681,7 @@ impl Toad {
                             self.tabs.remove(self.tab_index);
                             self.tab_index = self.tab_index.saturating_sub(1);
                         }
-                        self.draw(stdout)?;
+                        self.draw(stdout, screen_size)?;
                     }
                     InputBoxSubmitTarget::SetFormTextField(index, name) => {
                         if let Some(tab) = self.tabs.get_mut(self.tab_index)
@@ -682,7 +691,7 @@ impl Toad {
                                 .text_fields
                                 .insert(name.clone(), input_box.text);
                         };
-                        self.draw(stdout)?;
+                        self.draw(stdout, screen_size)?;
                     }
                 }
             }
@@ -697,10 +706,10 @@ impl Toad {
                     self.tabs.remove(self.tab_index);
                     self.tab_index = self.tab_index.saturating_sub(1);
                 }
-                self.draw(stdout)?;
+                self.draw(stdout, screen_size)?;
             }
             _ => {
-                self.draw(stdout)?;
+                self.draw(stdout, screen_size)?;
             }
         }
         Ok(())
@@ -719,9 +728,10 @@ impl Toad {
         let mut stdout = stdout();
         terminal::enable_raw_mode()?;
         queue!(stdout, cursor::Hide, event::EnableMouseCapture)?;
-        self.draw(&stdout)?;
+        let mut screen_size = terminal::size()?;
+        self.draw(&stdout, screen_size)?;
         while running {
-            let (screen_width, _) = terminal::size()?;
+            screen_size = terminal::size()?;
             if event::poll(Duration::from_millis(100))? {
                 let event = event::read()?;
                 if !event.is_key_press() {
@@ -743,7 +753,7 @@ impl Toad {
                                 && let Some(input_box) = &mut self.current_input_box
                             {
                                 input_box.state = InputBoxState::Cancelled;
-                                self.handle_input_box_state(&stdout).await?;
+                                self.handle_input_box_state(&stdout, screen_size).await?;
                             }
                         } else {
                             let mut needs_redraw = false;
@@ -782,11 +792,12 @@ impl Toad {
                                             mouse_event
                                                 .modifiers
                                                 .contains(event::KeyModifiers::CONTROL),
+                                            screen_size,
                                         )
                                         .await?;
                                         needs_redraw = false;
                                     } else if mouse_event.row == 0 {
-                                        let screen_width = terminal::size()?.0 as usize;
+                                        let screen_width = screen_size.0 as usize;
                                         let mut current_tab_width = self
                                             .tabs
                                             .get(self.tab_index)
@@ -830,14 +841,14 @@ impl Toad {
                                     } else if mouse_event.row == 1 {
                                         needs_redraw = true;
                                         if mouse_event.column >= 4 * 3
-                                            && mouse_event.column < screen_width - 4 * 3
+                                            && mouse_event.column < screen_size.0 - 4 * 3
                                         {
                                             // click url bar
 
                                             self.current_input_box = Some(InputBox::new(
                                                 4 * 3,
                                                 1,
-                                                screen_width - 4 * 3 * 2,
+                                                screen_size.0 - 4 * 3 * 2,
                                                 InputBoxSubmitTarget::ChangeAddress,
                                                 tab.url.clone().map(|f| f.to_string()),
                                             ));
@@ -855,7 +866,7 @@ impl Toad {
                                 _ => {}
                             }
                             if needs_redraw {
-                                self.draw(&stdout)?;
+                                self.draw(&stdout, screen_size)?;
                             }
                         }
                     };
@@ -866,13 +877,14 @@ impl Toad {
                 };
                 if let Some(input_box) = &mut self.current_input_box {
                     input_box.on_event(key);
-                    self.handle_input_box_state(&stdout).await?;
+                    self.handle_input_box_state(&stdout, screen_size).await?;
                 } else {
                     match key.code {
                         event::KeyCode::Enter => {
                             self.interact(
                                 &stdout,
                                 key.modifiers.contains(event::KeyModifiers::CONTROL),
+                                screen_size,
                             )
                             .await?;
                         }
@@ -897,7 +909,7 @@ impl Toad {
                                ;
                                 if let Some(page) = parse_html(&html) {
                                     self.open_page_new_tab(page).await;
-                                    self.draw(&stdout)?;
+                                    self.draw(&stdout, screen_size)?;
                                 }
                             }
                         }
@@ -906,51 +918,51 @@ impl Toad {
                             if self.tab_index >= self.tabs.len() {
                                 self.tab_index = 0;
                             }
-                            self.draw(&stdout)?;
+                            self.draw(&stdout, screen_size)?;
                         }
                         event::KeyCode::Down => {
                             if let Some(tab) = self.tabs.get_mut(self.tab_index) {
                                 tab.scroll_y += 1;
-                                self.draw(&stdout)?;
+                                self.draw(&stdout, screen_size)?;
                             }
                         }
                         event::KeyCode::Up => {
                             if let Some(tab) = self.tabs.get_mut(self.tab_index) {
                                 tab.scroll_y = tab.scroll_y.saturating_sub(1);
-                                self.draw(&stdout)?;
+                                self.draw(&stdout, screen_size)?;
                             }
                         }
                         event::KeyCode::Right => {
                             if key.modifiers.contains(event::KeyModifiers::CONTROL) {
                                 self.tabs.tabs[self.tab_index].forwards();
-                                self.draw(&stdout)?;
+                                self.draw(&stdout, screen_size)?;
                             } else if let Some(tab) = self.tabs.get_mut(self.tab_index) {
                                 tab.tab_index = Some(tab.tab_index.map(|i| i + 1).unwrap_or(0));
-                                self.draw(&stdout)?;
+                                self.draw(&stdout, screen_size)?;
                             }
                         }
                         event::KeyCode::Left => {
                             if key.modifiers.contains(event::KeyModifiers::CONTROL) {
                                 self.tabs.tabs[self.tab_index].backwards();
-                                self.draw(&stdout)?;
+                                self.draw(&stdout, screen_size)?;
                             } else if let Some(tab) = self.tabs.get_mut(self.tab_index) {
                                 tab.tab_index =
                                     Some(tab.tab_index.map(|i| i.saturating_sub(1)).unwrap_or(0));
-                                self.draw(&stdout)?;
+                                self.draw(&stdout, screen_size)?;
                             }
                         }
                         event::KeyCode::PageDown => {
-                            let (_, screen_height) = terminal::size()?;
+                            let (_, screen_height) = screen_size;
                             if let Some(tab) = self.tabs.get_mut(self.tab_index) {
                                 tab.scroll_y += screen_height;
-                                self.draw(&stdout)?;
+                                self.draw(&stdout, screen_size)?;
                             }
                         }
                         event::KeyCode::PageUp => {
-                            let (_, screen_height) = terminal::size()?;
+                            let (_, screen_height) = screen_size;
                             if let Some(tab) = self.tabs.get_mut(self.tab_index) {
                                 tab.scroll_y = tab.scroll_y.saturating_sub(screen_height);
-                                self.draw(&stdout)?;
+                                self.draw(&stdout, screen_size)?;
                             }
                         }
                         event::KeyCode::Char(char) => {
@@ -959,7 +971,7 @@ impl Toad {
                                 running = false;
                             } else if char == 'r' && control {
                                 self.refresh_page(self.tab_index);
-                                self.draw(&stdout)?;
+                                self.draw(&stdout, screen_size)?;
                             } else if char == 'w' && control {
                                 if self.tab_index < self.tabs.len() {
                                     self.tabs.remove(self.tab_index);
@@ -967,7 +979,7 @@ impl Toad {
                                     if self.tabs.is_empty() {
                                         break;
                                     }
-                                    self.draw(&stdout)?;
+                                    self.draw(&stdout, screen_size)?;
                                 }
                             } else if char == 't' && control {
                                 self.open_page_new_tab(
@@ -977,11 +989,11 @@ impl Toad {
                                 self.current_input_box = Some(InputBox::new(
                                     4 * 3,
                                     1,
-                                    screen_width - 4 * 3 * 2,
+                                    screen_size.0 - 4 * 3 * 2,
                                     InputBoxSubmitTarget::OpenNewTab,
                                     None,
                                 ));
-                                self.draw(&stdout)?;
+                                self.draw(&stdout, screen_size)?;
                             }
                         }
                         _ => {}
@@ -1042,30 +1054,29 @@ impl Toad {
 
             // if any finished loading
             if any_changed {
-                self.draw(&stdout)?;
+                self.draw(&stdout, screen_size)?;
             }
         }
         terminal::disable_raw_mode()?;
 
         // clean up styling and move cursor to bottom of screen
-        let h = terminal::size()?.1;
         execute!(
             stdout,
             cursor::Show,
-            cursor::MoveTo(0, h - 3),
+            cursor::MoveTo(0, screen_size.1 - 3),
             event::DisableMouseCapture
         )?;
         Ok(())
     }
-    fn draw(&mut self, mut stdout: &Stdout) -> io::Result<()> {
-        self.draw_current_page(stdout)?;
+    fn draw(&mut self, mut stdout: &Stdout, screen_size: (u16, u16)) -> io::Result<()> {
+        self.draw_current_page(stdout, screen_size)?;
         if let Some(input_box) = &self.current_input_box {
             input_box.draw(stdout)?;
         }
         stdout.flush()
     }
-    fn draw_topbar(&self, buffer: &mut Buffer) {
-        let screen_width = terminal::size().unwrap().0 as usize;
+    fn draw_topbar(&self, buffer: &mut Buffer, screen_size: (u16, u16)) {
+        let screen_width = screen_size.0 as usize;
         let mut current_tab_width = self
             .tabs
             .get(self.tab_index)
@@ -1129,11 +1140,15 @@ impl Toad {
         }
         buffer.draw_str(0, 1, "[←][→] [↻] ", &DEFAULT_DRAW_CTX, None);
     }
-    fn draw_current_page(&mut self, mut stdout: &Stdout) -> io::Result<()> {
+    fn draw_current_page(
+        &mut self,
+        mut stdout: &Stdout,
+        screen_size: (u16, u16),
+    ) -> io::Result<()> {
         let Some(tab) = self.tabs.get_mut(self.tab_index) else {
             return Ok(());
         };
-        let (screen_width, screen_height) = terminal::size()?;
+        let (screen_width, screen_height) = screen_size;
 
         let mut draws = if let Some(calls) = &tab.cached_draw {
             calls.clone()
@@ -1367,7 +1382,7 @@ impl Toad {
             buffer.set_pixel(screen_width - 1, scroll_amt as u16 + 3, BLACK_COLOR);
         }
 
-        self.draw_topbar(&mut buffer);
+        self.draw_topbar(&mut buffer, screen_size);
 
         queue!(stdout, cursor::MoveTo(0, 0))?;
         buffer.render(&mut stdout, self.prev_buffer.as_ref(), 0, 0)?;

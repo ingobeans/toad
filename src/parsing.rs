@@ -184,7 +184,7 @@ fn parse(
                         handle_new_element(&element, debug_info);
                         if !element.ty.void_element && !element.ty.stops_parsing {
                             element.children =
-                                parse(buf, debug_info, Some(element.ty.name.to_string()));
+                                parse(buf, debug_info, Some(name.trim().to_string()));
                         } else if element.ty.stops_parsing {
                             let chars: Vec<char> = format!("</{name}>").chars().collect();
                             let text = pop_until_all(buf, &chars);

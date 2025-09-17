@@ -52,6 +52,8 @@ struct Webpage {
     hovered_interactable: Option<Interactable>,
     debug_info: WebpageDebugInfo,
     cached_draw: Option<CachedDraw>,
+    /// If the user has manually scrolled on this page
+    has_been_scrolled: bool,
 }
 impl Webpage {
     fn get_title(&self) -> String {
@@ -664,7 +666,9 @@ impl Toad {
         Ok(())
     }
     async fn set_url(&mut self, url: Url) {
-        let page = if let Some(page) = self.fetched_assets.get(&url)
+        let mut u = url.clone();
+        u.set_fragment(None);
+        let page = if let Some(page) = self.fetched_assets.get(&u)
             && let DataEntry::Webpage(page) = page
         {
             let mut page = (**page).clone();
@@ -962,12 +966,14 @@ impl Toad {
                         }
                         event::KeyCode::Down => {
                             if let Some(tab) = self.tabs.get_mut(self.tab_index) {
+                                tab.has_been_scrolled = true;
                                 tab.scroll_y += 1;
                                 self.draw(&stdout, screen_size)?;
                             }
                         }
                         event::KeyCode::Up => {
                             if let Some(tab) = self.tabs.get_mut(self.tab_index) {
+                                tab.has_been_scrolled = true;
                                 tab.scroll_y = tab.scroll_y.saturating_sub(1);
                                 self.draw(&stdout, screen_size)?;
                             }
@@ -994,6 +1000,7 @@ impl Toad {
                         event::KeyCode::PageDown => {
                             let (_, screen_height) = screen_size;
                             if let Some(tab) = self.tabs.get_mut(self.tab_index) {
+                                tab.has_been_scrolled = true;
                                 tab.scroll_y += screen_height;
                                 self.draw(&stdout, screen_size)?;
                             }
@@ -1001,6 +1008,7 @@ impl Toad {
                         event::KeyCode::PageUp => {
                             let (_, screen_height) = screen_size;
                             if let Some(tab) = self.tabs.get_mut(self.tab_index) {
+                                tab.has_been_scrolled = true;
                                 tab.scroll_y = tab.scroll_y.saturating_sub(screen_height);
                                 self.draw(&stdout, screen_size)?;
                             }
@@ -1195,32 +1203,42 @@ impl Toad {
         screen_size: (u16, u16),
     ) -> io::Result<()> {
         let cached_image_sizes = self.generate_cached_image_sizes();
-        let Some(tab) = self.tabs.get_mut(self.tab_index) else {
+        let Some(page) = self.tabs.get_mut(self.tab_index) else {
             return Ok(());
         };
         let (screen_width, screen_height) = screen_size;
 
-        let mut draws = if let Some(calls) = &tab.cached_draw {
+        let mut draws = if let Some(calls) = &page.cached_draw {
             calls.clone()
         } else {
+            let scroll_to_element = if !page.has_been_scrolled {
+                page.url.as_ref().map(|f| f.fragment()).unwrap_or(None)
+            } else {
+                None
+            };
             let mut global_ctx = GlobalDrawContext {
                 unknown_sized_elements: Vec::new(),
-                global_style: &tab.global_style,
+                global_style: &page.global_style,
                 interactables: Vec::new(),
                 forms: Vec::new(),
                 cached_image_sizes,
-                base_url: &tab.url,
+                base_url: &page.url,
             };
             let mut draw_data = DrawData {
                 parent_width: ActualMeasurement::Pixels(screen_width * EM),
                 parent_height: ActualMeasurement::Pixels(screen_height * LH),
                 y: 3 * LH,
+                find_element: scroll_to_element,
                 ..Default::default()
             };
-            tab.root
+            page.root
                 .as_ref()
                 .unwrap()
                 .draw(DEFAULT_DRAW_CTX, &mut global_ctx, &mut draw_data)?;
+
+            if let Some(y) = draw_data.found_element_y {
+                page.scroll_y = y / LH - 3;
+            }
 
             // sort draw calls such that rect calls are drawn first
             draw_data.draw_calls.sort_by_key(|a| a.order());
@@ -1233,11 +1251,11 @@ impl Toad {
                 interactables: global_ctx.interactables,
                 forms: global_ctx.forms,
             };
-            tab.cached_draw = Some(draws.clone());
+            page.cached_draw = Some(draws.clone());
             draws
         };
 
-        tab.hovered_interactable = None;
+        page.hovered_interactable = None;
         let mut buffer = Buffer::empty(screen_width, screen_height);
 
         while let Some(call) = draws.calls.pop() {
@@ -1253,20 +1271,20 @@ impl Toad {
                     let h = actualize_actual(h, &draws.unknown_sized_elements);
                     let w = w / EM;
                     let mut h = h / LH;
-                    let bottom_out = y < tab.scroll_y;
+                    let bottom_out = y < page.scroll_y;
 
-                    if bottom_out && y + h < tab.scroll_y {
+                    if bottom_out && y + h < page.scroll_y {
                         continue;
                     } else if bottom_out {
                         let o = y;
-                        y = tab.scroll_y;
+                        y = page.scroll_y;
                         h -= y - o;
-                    } else if y - tab.scroll_y > (screen_height) {
+                    } else if y - page.scroll_y > (screen_height) {
                         continue;
-                    } else if y + h - tab.scroll_y > (screen_height) {
-                        h = screen_height + tab.scroll_y - y;
+                    } else if y + h - page.scroll_y > (screen_height) {
+                        h = screen_height + page.scroll_y - y;
                     }
-                    y -= tab.scroll_y;
+                    y -= page.scroll_y;
 
                     buffer.draw_rect(x, y, w, h, color);
                 }
@@ -1302,23 +1320,23 @@ impl Toad {
                         Cow::Owned(image)
                     };
 
-                    let bottom_out = y < tab.scroll_y;
+                    let bottom_out = y < page.scroll_y;
                     let mut image_row_offset = 0;
 
-                    if bottom_out && y + h < tab.scroll_y {
+                    if bottom_out && y + h < page.scroll_y {
                         continue;
                     } else if bottom_out {
                         let o = y;
-                        y = tab.scroll_y;
+                        y = page.scroll_y;
                         h -= y - o;
                         image_row_offset += (y - o) * 2;
-                    } else if y - tab.scroll_y > screen_height {
+                    } else if y - page.scroll_y > screen_height {
                         continue;
-                    } else if y + h - tab.scroll_y > (screen_height) {
-                        h = (screen_height) + tab.scroll_y - y;
+                    } else if y + h - page.scroll_y > (screen_height) {
+                        h = (screen_height) + page.scroll_y - y;
                     }
 
-                    let y = y.saturating_sub(tab.scroll_y);
+                    let y = y.saturating_sub(page.scroll_y);
                     for i in (0..h as u32 * 2).step_by(2) {
                         buffer.draw_img_row(
                             x,
@@ -1337,30 +1355,30 @@ impl Toad {
                     let w = w / EM;
                     let mut h = h / LH;
 
-                    let bottom_out = y < tab.scroll_y;
+                    let bottom_out = y < page.scroll_y;
                     let mut image_row_offset = 0;
 
-                    if bottom_out && y + h < tab.scroll_y {
+                    if bottom_out && y + h < page.scroll_y {
                         continue;
                     } else if bottom_out {
                         let o = y;
-                        y = tab.scroll_y;
+                        y = page.scroll_y;
                         h -= y - o;
                         image_row_offset += (y - o) * 2;
-                    } else if y - tab.scroll_y > screen_height {
+                    } else if y - page.scroll_y > screen_height {
                         continue;
-                    } else if y + h - tab.scroll_y > (screen_height) {
-                        h = (screen_height) + tab.scroll_y - y;
+                    } else if y + h - page.scroll_y > (screen_height) {
+                        h = (screen_height) + page.scroll_y - y;
                     }
-                    let y = y.saturating_sub(tab.scroll_y);
+                    let y = y.saturating_sub(page.scroll_y);
 
-                    let hovered = tab.tab_index.is_some_and(|f| f == interactable_index);
+                    let hovered = page.tab_index.is_some_and(|f| f == interactable_index);
                     let interactable = &draws.interactables[interactable_index];
                     let (form, name) = match interactable {
                         Interactable::InputText(form, text, width, _) => {
                             let new =
                                 Interactable::InputText(*form, text.clone(), *width, Some((x, y)));
-                            tab.cached_draw.as_mut().unwrap().interactables[interactable_index] =
+                            page.cached_draw.as_mut().unwrap().interactables[interactable_index] =
                                 new;
 
                             (form, text.clone())
@@ -1372,7 +1390,7 @@ impl Toad {
                     };
                     let form = &draws.forms[*form];
                     if hovered {
-                        tab.hovered_interactable = Some(interactable.clone());
+                        page.hovered_interactable = Some(interactable.clone());
                     }
                     if let Some(value) = form.text_fields.get(&name) {
                         placeholder_text = value.clone();
@@ -1393,10 +1411,10 @@ impl Toad {
                 }
                 DrawCall::Text(x, y, text, mut ctx, parent_width, parent_interactable) => {
                     if let Some(interactable) = parent_interactable
-                        && let Some(tab_amt) = tab.tab_index
+                        && let Some(tab_amt) = page.tab_index
                         && tab_amt == interactable
                     {
-                        tab.hovered_interactable = Some(draws.interactables[interactable].clone());
+                        page.hovered_interactable = Some(draws.interactables[interactable].clone());
                         ctx.background_color = Specified(BLUE_COLOR);
                     }
                     let x = x / EM;
@@ -1414,7 +1432,7 @@ impl Toad {
                     };
                     let x = x + offset_x;
 
-                    if let Some(y) = y.checked_sub(tab.scroll_y) {
+                    if let Some(y) = y.checked_sub(page.scroll_y) {
                         buffer.draw_str(x, y, &text, &ctx, parent_interactable);
                     }
                 }
@@ -1423,7 +1441,7 @@ impl Toad {
         if draws.content_height / LH > screen_height {
             // draw scrollbar
             let page_height = screen_height - 3;
-            let scroll_amt = (((tab.scroll_y * LH) as f32
+            let scroll_amt = (((page.scroll_y * LH) as f32
                 / (draws.content_height - page_height) as f32)
                 .min(1.0)
                 * page_height as f32)

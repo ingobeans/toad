@@ -508,7 +508,7 @@ fn parse_method(method: &str) -> Option<Method> {
     }
 }
 #[derive(Default, Clone)]
-pub struct DrawData {
+pub struct DrawData<'a> {
     pub draw_calls: Vec<DrawCall>,
     pub content_width: u16,
     pub content_height: u16,
@@ -516,6 +516,8 @@ pub struct DrawData {
     pub parent_height: ActualMeasurement,
     pub x: u16,
     pub y: u16,
+    pub find_element: Option<&'a str>,
+    pub found_element_y: Option<u16>,
     pub parent_interactable: Option<usize>,
     pub parent_form: Option<usize>,
     pub ancestors_target_info: Vec<ElementTargetInfo>,
@@ -640,10 +642,10 @@ impl Element {
         style.display.inherit_from(parent_draw_context.display);
         style
     }
-    pub fn draw(
-        &self,
+    pub fn draw<'a>(
+        &'a self,
         parent_draw_ctx: ElementDrawContext,
-        global_ctx: &mut GlobalDrawContext,
+        global_ctx: &mut GlobalDrawContext<'a>,
         draw_data: &mut DrawData,
     ) -> io::Result<()> {
         let mut draw_data_ancestor_info = draw_data.ancestors_target_info.clone();
@@ -652,6 +654,14 @@ impl Element {
             id: self.get_attribute("id").cloned(),
             classes: self.classes.clone(),
         });
+
+        if let Some(id) = draw_data.find_element
+            && let Some(self_id) = self.get_attribute("id")
+            && self_id == id
+        {
+            draw_data.found_element_y = Some(draw_data.y);
+        }
+
         // construct this element's active style
         let style = self.get_active_style(global_ctx, parent_draw_ctx, &draw_data_ancestor_info);
 
@@ -928,6 +938,7 @@ impl Element {
             ancestors_target_info: draw_data_ancestor_info,
             last_was_inline_and_sized: draw_data.last_was_inline_and_sized,
             parent_form: self_form,
+            find_element: draw_data.find_element,
             ..Default::default()
         };
         if self.ty.name == "li"
@@ -958,6 +969,9 @@ impl Element {
             draw_data.content_height = draw_data
                 .content_height
                 .max(draw_data.y.saturating_add(child_data.content_height));
+            draw_data.found_element_y = draw_data
+                .found_element_y
+                .or(child_data.found_element_y.map(|f| f + draw_data.y));
         }
         for draw_call in child_data.draw_calls.iter_mut() {
             match draw_call {

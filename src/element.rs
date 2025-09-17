@@ -683,6 +683,14 @@ impl Element {
                     disrespect_whitespace(text, draw_data.last_was_inline_and_sized)
                 };
                 text = parse_special(&text);
+
+                // if parent is less than one EM in width,
+                // dont draw it.
+                if let Some(pw) = draw_data.parent_width.get_pixels()
+                    && pw < EM
+                {
+                    return Ok(());
+                }
                 let mut lines = fit_text_in_width(&text, draw_data.parent_width, draw_data.x)
                     .into_iter()
                     .peekable();

@@ -54,6 +54,8 @@ struct Webpage {
     cached_draw: Option<CachedDraw>,
     /// If the user has manually scrolled on this page
     has_been_scrolled: bool,
+    /// The current height of the page
+    page_height: Option<u16>,
 }
 impl Webpage {
     fn get_title(&self) -> String {
@@ -542,6 +544,7 @@ struct Toad {
     current_input_box: Option<InputBox>,
     last_mouse_x: u16,
     last_mouse_y: u16,
+    dragging_scrollbar: bool,
 }
 impl Toad {
     fn new() -> Result<Self, reqwest::Error> {
@@ -763,10 +766,10 @@ impl Toad {
                 let event = event::read()?;
                 if !event.is_key_press() {
                     if let event::Event::Mouse(mouse_event) = event {
-                        let Some(tab) = self.tabs.get_mut(self.tab_index) else {
+                        let Some(page) = self.tabs.get_mut(self.tab_index) else {
                             continue;
                         };
-                        let Some(cached) = &tab.cached_draw else {
+                        let Some(cached) = &page.cached_draw else {
                             continue;
                         };
                         let Some(prev) = &self.prev_buffer else {
@@ -784,35 +787,50 @@ impl Toad {
                             }
                         } else {
                             let mut needs_redraw = false;
+                            if self.dragging_scrollbar
+                                && let Some(content_height) = page.page_height
+                            {
+                                let page_height = screen_size.1 - 3;
+                                page.scroll_y =
+                                    (mouse_event.row.saturating_sub(2) as f32 / page_height as f32
+                                        * (content_height - page_height) as f32
+                                        / LH as f32) as u16;
+                                needs_redraw = true;
+                            }
 
-                            if mouse_event.row >= 3 {
+                            if mouse_event.row >= 3 && mouse_event.column < screen_size.0 - 1 {
                                 let cursor_item = prev.get_interactable(
                                     mouse_event.column as usize,
                                     mouse_event.row as usize,
                                 );
 
                                 let new = cursor_item.map(|f| cached.interactables[f].clone());
-                                if tab.tab_index != cursor_item {
-                                    tab.tab_index = cursor_item;
-                                    tab.hovered_interactable = new;
+                                if page.tab_index != cursor_item {
+                                    page.tab_index = cursor_item;
+                                    page.hovered_interactable = new;
                                     needs_redraw = true;
                                 }
                             } else {
                                 needs_redraw = true;
-                                tab.hovered_interactable = None;
-                                tab.tab_index = None;
+                                page.hovered_interactable = None;
+                                page.tab_index = None;
                             }
                             match mouse_event.kind {
                                 event::MouseEventKind::ScrollDown => {
-                                    tab.scroll_y += 1;
+                                    page.scroll_y += 1;
                                     needs_redraw = true;
                                 }
                                 event::MouseEventKind::ScrollUp => {
-                                    tab.scroll_y = tab.scroll_y.saturating_sub(1);
+                                    page.scroll_y = page.scroll_y.saturating_sub(1);
                                     needs_redraw = true;
                                 }
+                                event::MouseEventKind::Up(event::MouseButton::Left) => {
+                                    self.dragging_scrollbar = false;
+                                }
                                 event::MouseEventKind::Down(mouse_button) => {
-                                    if mouse_event.row >= 3 {
+                                    if mouse_event.row >= 3
+                                        && mouse_event.column < screen_size.0 - 1
+                                    {
                                         // handle click interactable
                                         self.interact(
                                             &stdout,
@@ -823,6 +841,10 @@ impl Toad {
                                         )
                                         .await?;
                                         needs_redraw = false;
+                                    } else if mouse_event.column >= screen_size.0 - 1
+                                        && let event::MouseButton::Left = mouse_button
+                                    {
+                                        self.dragging_scrollbar = true;
                                     } else if mouse_event.row == 0 {
                                         let screen_width = screen_size.0 as usize;
                                         let mut current_tab_width = self
@@ -894,7 +916,7 @@ impl Toad {
                                                 1,
                                                 screen_size.0 - 4 * 3 * 2,
                                                 InputBoxSubmitTarget::ChangeAddress,
-                                                tab.url.clone().map(|f| f.to_string()),
+                                                page.url.clone().map(|f| f.to_string()),
                                             ));
                                             needs_redraw = true;
                                         } else if mouse_event.column <= 2 {
@@ -1448,6 +1470,7 @@ impl Toad {
                 .min(page_height as f32 - 1.0);
             buffer.set_pixel(screen_width - 1, scroll_amt as u16 + 3, BLACK_COLOR);
         }
+        page.page_height = Some(draws.content_height);
 
         self.draw_topbar(&mut buffer, screen_size);
 

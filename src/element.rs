@@ -777,9 +777,9 @@ impl Element {
             if let Some(source) = self.get_attribute("src")
                 && let Ok(url) = {
                     if let Some(base) = global_ctx.base_url {
-                        base.join(&source)
+                        base.join(source)
                     } else {
-                        Url::parse(&source)
+                        Url::parse(source)
                     }
                 }
                 && let Some(source_size) = global_ctx.cached_image_sizes.get(&url)
@@ -790,13 +790,12 @@ impl Element {
                 if let Some(width) = width
                     && width > 0
                 {
+                    width_pixels = width;
                     if let Some(height) = height
                         && height > 0
                     {
-                        width_pixels = width;
                         height_pixels = height;
                     } else {
-                        width_pixels = width;
                         height_pixels =
                             (width as f32 * source_size.1 as f32 / source_size.0 as f32) as u16;
                     }

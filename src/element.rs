@@ -796,6 +796,7 @@ impl Element {
                         width_pixels = width;
                         height_pixels = height;
                     } else {
+                        width_pixels = width;
                         height_pixels =
                             (width as f32 * source_size.1 as f32 / source_size.0 as f32) as u16;
                     }

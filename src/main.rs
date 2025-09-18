@@ -843,6 +843,8 @@ impl Toad {
                                         needs_redraw = false;
                                     } else if mouse_event.column >= screen_size.0 - 1
                                         && let event::MouseButton::Left = mouse_button
+                                        && let Some(content_height) = page.page_height
+                                        && content_height / LH > screen_size.1
                                     {
                                         self.dragging_scrollbar = true;
                                     } else if mouse_event.row == 0 {

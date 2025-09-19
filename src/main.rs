@@ -392,6 +392,17 @@ impl Debug for DrawCall {
     }
 }
 
+struct ToadSettings {
+    images_enabled: bool,
+}
+impl Default for ToadSettings {
+    fn default() -> Self {
+        Self {
+            images_enabled: true,
+        }
+    }
+}
+
 #[derive(Clone, Default)]
 struct Form {
     action: String,
@@ -545,6 +556,7 @@ struct Toad {
     last_mouse_x: u16,
     last_mouse_y: u16,
     dragging_scrollbar: bool,
+    settings: ToadSettings,
 }
 impl Toad {
     fn new() -> Result<Self, reqwest::Error> {
@@ -578,6 +590,11 @@ impl Toad {
                 continue;
             };
             if !self.fetched_assets.contains_key(&url) {
+                if let DataType::Image = ty
+                    && !self.settings.images_enabled
+                {
+                    continue;
+                }
                 let handle = tokio::spawn(get_data(url.clone(), ty, self.client.clone()));
                 self.fetches.push((page.indentifier, url, handle));
             }
@@ -650,11 +667,17 @@ impl Toad {
                 let Some(mut cached) = tab.cached_draw.take() else {
                     return Ok(());
                 };
+
                 let options = Url::options().base_url(tab.url.as_ref());
                 let a = cached.forms.remove(*index);
                 let Ok(url) = options.parse(&a.action) else {
                     return Ok(());
                 };
+
+                if self.handle_toad_settings(&url) {
+                    self.draw(stdout, screen_size)?;
+                    return Ok(());
+                }
 
                 let handle = tokio::spawn(get_page_with_form(self.client.clone(), url.clone(), a));
                 self.fetches
@@ -667,6 +690,26 @@ impl Toad {
         }
 
         Ok(())
+    }
+    fn handle_toad_settings(&mut self, url: &Url) -> bool {
+        if url.scheme() == "toad" {
+            if let Some(segments) = url.path_segments()
+                && let Some(last) = segments.last()
+            {
+                match last {
+                    "disable_images" => {
+                        self.settings.images_enabled = false;
+                    }
+                    "enable_images" => {
+                        self.settings.images_enabled = true;
+                    }
+                    _ => return false,
+                }
+            }
+
+            return true;
+        }
+        false
     }
     async fn set_url(&mut self, url: Url) {
         let mut u = url.clone();
@@ -1313,6 +1356,9 @@ impl Toad {
                     buffer.draw_rect(x, y, w, h, color);
                 }
                 DrawCall::Image(x, y, w, h, url) => {
+                    if !self.settings.images_enabled {
+                        continue;
+                    }
                     let Some(DataEntry::Image(image)) = self.fetched_assets.get(&url) else {
                         continue;
                     };
@@ -1495,7 +1541,12 @@ async fn main() -> io::Result<()> {
         Url::parse("toad://home").unwrap(),
         DataEntry::Webpage(Box::new(parse_html(include_str!("home.html")).unwrap())),
     );
+    toad.fetched_assets.insert(
+        Url::parse("toad://settings").unwrap(),
+        DataEntry::Webpage(Box::new(parse_html(include_str!("settings.html")).unwrap())),
+    );
     toad.set_url(Url::parse("toad://home").unwrap()).await;
+    toad.set_url(Url::parse("toad://settings").unwrap()).await;
     toad.run().await
 }
 

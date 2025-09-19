@@ -1,6 +1,6 @@
 [package]
 name = "toad"
-version = "0.13.26"
+version = "0.13.27"
 edition = "2024"
 
 [dependencies]

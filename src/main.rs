@@ -971,6 +971,11 @@ impl Toad {
                                         } else if mouse_event.column > 6 && mouse_event.column <= 9
                                         {
                                             self.refresh_page(self.tab_index)
+                                        } else if mouse_event.column > screen_size.0 - 5
+                                            && mouse_event.column <= screen_size.0 - 2
+                                        {
+                                            self.set_url(Url::parse("toad://settings").unwrap())
+                                                .await;
                                         }
                                     }
                                 }
@@ -1251,9 +1256,14 @@ impl Toad {
                 buffer.draw_rect(3, 1, 3, 1, WHITE_COLOR);
             } else if self.last_mouse_x > 6 && self.last_mouse_x <= 9 {
                 buffer.draw_rect(7, 1, 3, 1, WHITE_COLOR);
+            } else if self.last_mouse_x > screen_width as u16 - 5
+                && self.last_mouse_x <= screen_width as u16 - 2
+            {
+                buffer.draw_rect(screen_width as u16 - 4, 1, 3, 1, WHITE_COLOR);
             }
         }
         buffer.draw_str(0, 1, "[←][→] [↻] ", &DEFAULT_DRAW_CTX, None);
+        buffer.draw_str(screen_width as u16 - 4, 1, "[≡]", &DEFAULT_DRAW_CTX, None);
     }
     fn generate_cached_image_sizes(&self) -> HashMap<Url, (u16, u16)> {
         let mut map = HashMap::new();
@@ -1546,7 +1556,6 @@ async fn main() -> io::Result<()> {
         DataEntry::Webpage(Box::new(parse_html(include_str!("settings.html")).unwrap())),
     );
     toad.set_url(Url::parse("toad://home").unwrap()).await;
-    toad.set_url(Url::parse("toad://settings").unwrap()).await;
     toad.run().await
 }
 

@@ -626,6 +626,15 @@ impl Toad {
         self.handle_new_page(&mut page).await;
         self.tabs.insert(self.tab_index, page);
     }
+    fn get_url_bar_autocompletions(&self) -> Vec<String> {
+        let mut vec = vec![
+            String::from("https://"),
+            String::from("https://duckduckgo.com"),
+            String::from("toad://"),
+        ];
+        vec.sort_by_key(String::len);
+        vec
+    }
     async fn interact(
         &mut self,
         stdout: &Stdout,
@@ -668,6 +677,7 @@ impl Toad {
                     *width,
                     InputBoxSubmitTarget::SetFormTextField(*index, name.clone()),
                     cached.forms[*index].text_fields.get(name).cloned(),
+                    Vec::new(),
                 ));
                 self.prev_buffer = None;
                 self.draw(stdout, screen_size)?;
@@ -986,6 +996,7 @@ impl Toad {
                                                 screen_size.0 - 4 * 3 * 2,
                                                 InputBoxSubmitTarget::ChangeAddress,
                                                 page.url.clone().map(|f| f.to_string()),
+                                                self.get_url_bar_autocompletions(),
                                             ));
                                             needs_redraw = true;
                                         } else if mouse_event.column <= 2 {
@@ -1136,6 +1147,7 @@ impl Toad {
                                     screen_size.0 - 4 * 3 * 2,
                                     InputBoxSubmitTarget::OpenNewTab,
                                     None,
+                                    self.get_url_bar_autocompletions(),
                                 ));
                                 self.draw(&stdout, screen_size)?;
                             }

@@ -1,4 +1,7 @@
-use std::io::{Stdout, Write, stdout};
+use std::{
+    collections::VecDeque,
+    io::{Stdout, Write, stdout},
+};
 
 use crossterm::{
     cursor,
@@ -140,6 +143,8 @@ pub struct InputBox {
     cursor_pos: usize,
     pub state: InputBoxState,
     pub on_submit: InputBoxSubmitTarget,
+    auto_completions: Vec<String>,
+    rejected_autocompletion: bool,
 }
 impl InputBox {
     pub fn new(
@@ -148,6 +153,7 @@ impl InputBox {
         width: u16,
         on_submit: InputBoxSubmitTarget,
         text: Option<String>,
+        auto_completions: Vec<String>,
     ) -> Self {
         let text = text.unwrap_or_default();
         Self {
@@ -158,7 +164,30 @@ impl InputBox {
             text,
             state: InputBoxState::Active,
             on_submit,
+            auto_completions,
+            rejected_autocompletion: false,
         }
+    }
+    fn get_autocompletion(&self) -> Option<String> {
+        if self.rejected_autocompletion {
+            return None;
+        }
+        self.auto_completions.iter().find_map(|f| {
+            if !self.text.is_empty() && f.starts_with(&self.text) {
+                let text_chars = self.text.chars().count();
+                let mut chars: VecDeque<char> = f.clone().chars().collect();
+                if text_chars >= chars.len() {
+                    return None;
+                }
+
+                for _ in 0..text_chars {
+                    chars.pop_front();
+                }
+                Some(chars.iter().collect::<String>())
+            } else {
+                None
+            }
+        })
     }
     pub fn draw(&self, mut stdout: &Stdout) -> std::io::Result<()> {
         queue!(
@@ -167,11 +196,17 @@ impl InputBox {
             cursor::MoveTo(self.x, self.y),
             style::ResetColor
         )?;
+        let autocomplete = self.get_autocompletion().unwrap_or_default();
+        write!(stdout, "{}", self.text)?;
+        queue!(stdout, style::SetBackgroundColor(style::Color::Blue))?;
+        write!(stdout, "{autocomplete}")?;
+        queue!(stdout, style::ResetColor)?;
         write!(
             stdout,
-            "{}{}",
-            self.text,
-            " ".repeat((self.width as usize).saturating_sub(self.text.width()))
+            "{}",
+            " ".repeat(
+                (self.width as usize).saturating_sub(self.text.width() + autocomplete.width())
+            )
         )?;
         queue!(
             stdout,
@@ -180,6 +215,9 @@ impl InputBox {
         Ok(())
     }
     pub fn on_event(&mut self, event: event::KeyEvent) {
+        let mut realize_autocompletion = false;
+        let mut jump_to_autocompletion_end = false;
+        let autocompletion = self.get_autocompletion();
         match event.code {
             KeyCode::Left => {
                 self.cursor_pos = self.cursor_pos.saturating_sub(1);
@@ -190,6 +228,7 @@ impl InputBox {
                         self.cursor_pos -= 1;
                     }
                 }
+                realize_autocompletion = true;
             }
             KeyCode::Right => {
                 self.cursor_pos += 1;
@@ -204,14 +243,18 @@ impl InputBox {
                         self.cursor_pos += 1;
                     }
                 }
+                jump_to_autocompletion_end = true;
+                realize_autocompletion = true;
             }
             KeyCode::Enter => {
                 self.state = InputBoxState::Submitted;
+                realize_autocompletion = true;
             }
             KeyCode::Esc => {
                 self.state = InputBoxState::Cancelled;
             }
             KeyCode::Char(char) => {
+                self.rejected_autocompletion = false;
                 if char == 'c' && event.modifiers.contains(KeyModifiers::CONTROL) {
                     self.state = InputBoxState::Cancelled;
                 } else {
@@ -221,49 +264,66 @@ impl InputBox {
             }
             KeyCode::Home => {
                 self.cursor_pos = 0;
+                realize_autocompletion = true;
             }
             KeyCode::End => {
                 self.cursor_pos = self.text.chars().count();
+                realize_autocompletion = true;
+                jump_to_autocompletion_end = true;
             }
             KeyCode::Backspace => {
                 if self.cursor_pos > 0 {
-                    self.cursor_pos -= 1;
+                    if autocompletion.is_some() {
+                        self.rejected_autocompletion = true;
+                    } else {
+                        self.cursor_pos -= 1;
+                        remove_char(&mut self.text, self.cursor_pos);
+
+                        // make ctrl+backspace delete until special character
+                        //
+                        // note: if using vscode to test, ctrl+backspace doesnt work in vscode's terminal
+                        // so you'll have to use another terminal
+                        if event.modifiers.contains(event::KeyModifiers::CONTROL) {
+                            let mut chars: Vec<char> = self.text.chars().collect();
+                            while self.cursor_pos > 0
+                                && !SPECIAL_CHARS.contains(&chars[self.cursor_pos - 1])
+                            {
+                                self.cursor_pos -= 1;
+                                chars.remove(self.cursor_pos);
+                            }
+                            self.text = chars.iter().collect();
+                        }
+                    }
+                }
+            }
+            KeyCode::Delete => {
+                if autocompletion.is_some() {
+                    self.rejected_autocompletion = true;
+                } else {
                     remove_char(&mut self.text, self.cursor_pos);
 
-                    // make ctrl+backspace delete until special character
+                    // make ctrl+delete delete until special character
                     //
-                    // note: if using vscode to test, ctrl+backspace doesnt work in vscode's terminal
-                    // so you'll have to use another terminal
+                    // again, ctrl+delete doesnt work in vscode's terminal
+                    // so this has to be tested in another terminal
                     if event.modifiers.contains(event::KeyModifiers::CONTROL) {
                         let mut chars: Vec<char> = self.text.chars().collect();
-                        while self.cursor_pos > 0
-                            && !SPECIAL_CHARS.contains(&chars[self.cursor_pos - 1])
+                        while self.cursor_pos < chars.len()
+                            && !SPECIAL_CHARS.contains(&chars[self.cursor_pos])
                         {
-                            self.cursor_pos -= 1;
                             chars.remove(self.cursor_pos);
                         }
                         self.text = chars.iter().collect();
                     }
                 }
             }
-            KeyCode::Delete => {
-                remove_char(&mut self.text, self.cursor_pos);
-
-                // make ctrl+delete delete until special character
-                //
-                // again, ctrl+delete doesnt work in vscode's terminal
-                // so this has to be tested in another terminal
-                if event.modifiers.contains(event::KeyModifiers::CONTROL) {
-                    let mut chars: Vec<char> = self.text.chars().collect();
-                    while self.cursor_pos < chars.len()
-                        && !SPECIAL_CHARS.contains(&chars[self.cursor_pos])
-                    {
-                        chars.remove(self.cursor_pos);
-                    }
-                    self.text = chars.iter().collect();
-                }
-            }
             _ => {}
+        }
+        if realize_autocompletion && let Some(autocompletion) = autocompletion {
+            self.text += &autocompletion;
+            if jump_to_autocompletion_end {
+                self.cursor_pos = self.text.chars().count();
+            }
         }
     }
 }

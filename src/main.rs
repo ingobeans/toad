@@ -914,7 +914,11 @@ impl Toad {
                                             &stdout,
                                             mouse_event
                                                 .modifiers
-                                                .contains(event::KeyModifiers::CONTROL),
+                                                .contains(event::KeyModifiers::CONTROL)
+                                                || matches!(
+                                                    mouse_button,
+                                                    event::MouseButton::Middle
+                                                ),
                                             screen_size,
                                         )
                                         .await?;
@@ -978,6 +982,9 @@ impl Toad {
                                                     self.tabs.remove(pressed_tab_index);
                                                     if self.tabs.is_empty() {
                                                         break;
+                                                    }
+                                                    if self.tab_index >= self.tabs.len() {
+                                                        self.tab_index -= 1;
                                                     }
                                                     needs_redraw = true;
                                                 }

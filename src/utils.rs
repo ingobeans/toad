@@ -130,6 +130,8 @@ pub enum InputBoxState {
     Cancelled,
 }
 
+pub const SPECIAL_CHARS: &[char] = &['.', '/', ' '];
+
 pub struct InputBox {
     pub x: u16,
     pub y: u16,
@@ -181,11 +183,26 @@ impl InputBox {
         match event.code {
             KeyCode::Left => {
                 self.cursor_pos = self.cursor_pos.saturating_sub(1);
+
+                if event.modifiers.contains(event::KeyModifiers::CONTROL) {
+                    let chars: Vec<char> = self.text.chars().collect();
+                    while self.cursor_pos > 0 && !SPECIAL_CHARS.contains(&chars[self.cursor_pos]) {
+                        self.cursor_pos -= 1;
+                    }
+                }
             }
             KeyCode::Right => {
                 self.cursor_pos += 1;
                 if self.cursor_pos > self.text.chars().count() {
                     self.cursor_pos -= 1;
+                }
+                if event.modifiers.contains(event::KeyModifiers::CONTROL) {
+                    let chars: Vec<char> = self.text.chars().collect();
+                    while self.cursor_pos < self.text.chars().count()
+                        && !SPECIAL_CHARS.contains(&chars[self.cursor_pos])
+                    {
+                        self.cursor_pos += 1;
+                    }
                 }
             }
             KeyCode::Enter => {
@@ -202,14 +219,49 @@ impl InputBox {
                     self.cursor_pos += 1;
                 }
             }
+            KeyCode::Home => {
+                self.cursor_pos = 0;
+            }
+            KeyCode::End => {
+                self.cursor_pos = self.text.chars().count();
+            }
             KeyCode::Backspace => {
                 if self.cursor_pos > 0 {
                     self.cursor_pos -= 1;
                     remove_char(&mut self.text, self.cursor_pos);
+
+                    // make ctrl+backspace delete until special character
+                    //
+                    // note: if using vscode to test, ctrl+backspace doesnt work in vscode's terminal
+                    // so you'll have to use another terminal
+                    if event.modifiers.contains(event::KeyModifiers::CONTROL) {
+                        let mut chars: Vec<char> = self.text.chars().collect();
+                        while self.cursor_pos > 0
+                            && !SPECIAL_CHARS.contains(&chars[self.cursor_pos - 1])
+                        {
+                            self.cursor_pos -= 1;
+                            chars.remove(self.cursor_pos);
+                        }
+                        self.text = chars.iter().collect();
+                    }
                 }
             }
             KeyCode::Delete => {
                 remove_char(&mut self.text, self.cursor_pos);
+
+                // make ctrl+delete delete until special character
+                //
+                // again, ctrl+delete doesnt work in vscode's terminal
+                // so this has to be tested in another terminal
+                if event.modifiers.contains(event::KeyModifiers::CONTROL) {
+                    let mut chars: Vec<char> = self.text.chars().collect();
+                    while self.cursor_pos < chars.len()
+                        && !SPECIAL_CHARS.contains(&chars[self.cursor_pos])
+                    {
+                        chars.remove(self.cursor_pos);
+                    }
+                    self.text = chars.iter().collect();
+                }
             }
             _ => {}
         }

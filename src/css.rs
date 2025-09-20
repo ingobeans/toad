@@ -292,7 +292,19 @@ fn parse_target(specifier: &str) -> Option<StyleTarget> {
         Some(StyleTarget { types })
     }
 }
-pub fn parse_stylesheet(text: &str, style: &mut Vec<(StyleTarget, ElementDrawContext)>) {
+
+#[derive(Clone, Copy, Hash, PartialEq, Eq, Debug)]
+pub enum MediaThemeSelector {
+    Unset,
+    Light,
+    Dark,
+}
+
+pub fn parse_stylesheet(
+    text: &str,
+    style: &mut Vec<(StyleTarget, ElementDrawContext)>,
+    mut media_theme_selector: MediaThemeSelector,
+) {
     let mut chars: Vec<char> = text.chars().collect();
     chars.reverse();
     while let Some(char) = chars.pop() {
@@ -302,8 +314,14 @@ pub fn parse_stylesheet(text: &str, style: &mut Vec<(StyleTarget, ElementDrawCon
         if char == '@' {
             let (media_selector, rule_contents) = pop_exit_media_selector(&mut chars);
             // also parse the content of the media selector thingy
-            if media_selector.trim() == "media screen" {
-                parse_stylesheet(&rule_contents, style);
+            let media_selector = media_selector.trim();
+            if media_selector.starts_with("media") {
+                if media_selector.contains("prefers-color-scheme: light") {
+                    media_theme_selector = MediaThemeSelector::Light;
+                } else if media_selector.contains("prefers-color-scheme: dark") {
+                    media_theme_selector = MediaThemeSelector::Dark;
+                }
+                parse_stylesheet(&rule_contents, style, media_theme_selector);
             }
             continue;
         }
@@ -316,9 +334,12 @@ pub fn parse_stylesheet(text: &str, style: &mut Vec<(StyleTarget, ElementDrawCon
 
         for specifier in specifiers.split(",") {
             let specifier = specifier.trim();
-            let Some(target) = parse_target(specifier) else {
+            let Some(mut target) = parse_target(specifier) else {
                 continue;
             };
+            target
+                .types
+                .push(StyleTargetType::Theme(media_theme_selector));
             style.push((target, ctx));
         }
     }
@@ -372,10 +393,10 @@ mod tests {
                 classes: vec![],
             },
         ];
-        assert!(a.matches(&info));
+        assert!(a.matches(&info, false));
         // remove item and try again (should fail)
         info.pop();
-        assert!(!a.matches(&info));
+        assert!(!a.matches(&info, false));
 
         // test single items
 
@@ -385,7 +406,7 @@ mod tests {
             id: Some(String::from("item")),
             classes: vec![],
         }];
-        assert!(b.matches(&element));
+        assert!(b.matches(&element, false));
 
         // should fail
         let c = parse_target("div").unwrap();
@@ -394,7 +415,7 @@ mod tests {
             id: Some(String::from("item")),
             classes: vec![],
         }];
-        assert!(!c.matches(&element));
+        assert!(!c.matches(&element, false));
     }
 
     #[test]

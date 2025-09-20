@@ -22,6 +22,7 @@ pub static LIGHT_THEME: Theme = Theme {
         g: 154,
         b: 255,
     },
+    is_dark: false,
 };
 
 pub static DARK_THEME: Theme = Theme {
@@ -41,4 +42,5 @@ pub static DARK_THEME: Theme = Theme {
         g: 54,
         b: 189,
     },
+    is_dark: true,
 };

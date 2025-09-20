@@ -10,7 +10,7 @@ use crossterm::{
 use image::{DynamicImage, GenericImageView};
 use unicode_width::UnicodeWidthChar;
 
-use crate::{ElementDrawContext, NonInheritedField, Theme, consts::*};
+use crate::{ElementDrawContext, NonInheritedField, Theme};
 
 #[derive(Clone, Copy)]
 struct Cell {

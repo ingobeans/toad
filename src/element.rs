@@ -604,7 +604,7 @@ impl Element {
         style.merge_inherit(&parent_draw_context);
 
         for (k, v) in global_ctx.global_style.iter() {
-            if k.matches(ancestor_target_info) {
+            if k.matches(ancestor_target_info, global_ctx.is_dark) {
                 style.merge_all(v);
             }
         }

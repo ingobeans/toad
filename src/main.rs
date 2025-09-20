@@ -212,7 +212,7 @@ impl<T> NonInheritedField<T> {
 }
 use NonInheritedField::*;
 
-use crate::css::parse_stylesheet;
+use crate::css::{MediaThemeSelector, parse_stylesheet};
 
 #[derive(Clone, Copy, PartialEq)]
 enum TextPrefix {
@@ -273,6 +273,8 @@ enum StyleTargetType {
     Class(String, Option<String>),
     /// Target by element id (Id, Optional element type requirement)
     Id(String, Option<String>),
+    /// Target only active if theme matches
+    Theme(MediaThemeSelector),
 }
 
 impl StyleTargetType {
@@ -286,6 +288,7 @@ impl StyleTargetType {
                 info.id.as_ref().is_some_and(|i| i == id)
                     && ty.as_ref().is_none_or(|ty| ty == info.type_name)
             }
+            StyleTargetType::Theme(_) => panic!("should be handled elsewhere!"),
         }
     }
 }
@@ -302,9 +305,27 @@ struct ElementTargetInfo {
     classes: Vec<String>,
 }
 impl StyleTarget {
-    fn matches(&self, info: &[ElementTargetInfo]) -> bool {
+    fn matches(&self, info: &[ElementTargetInfo], is_dark: bool) -> bool {
         let mut info = info.iter().rev();
         let mut types = self.types.iter().rev();
+
+        // the first (last) type should always be the media theme selector
+        let StyleTargetType::Theme(media_theme_selector) = types.next().unwrap() else {
+            panic!("media theme selector not present!");
+        };
+        match media_theme_selector {
+            MediaThemeSelector::Unset => {}
+            MediaThemeSelector::Dark => {
+                if !is_dark {
+                    return false;
+                }
+            }
+            MediaThemeSelector::Light => {
+                if is_dark {
+                    return false;
+                }
+            }
+        }
 
         // unwrap because this function should never be called without passing at least the element self
         let first_element = info.next().unwrap();
@@ -332,7 +353,7 @@ fn refresh_style(page: &mut Webpage, assets: &HashMap<Url, DataEntry>) {
     if let Some(root) = &page.root {
         let mut all_styles = String::new();
         get_all_styles(root, &mut all_styles, page.url.as_ref(), assets);
-        parse_stylesheet(&all_styles, &mut global_style);
+        parse_stylesheet(&all_styles, &mut global_style, MediaThemeSelector::Unset);
     }
     page.global_style = global_style;
 }
@@ -401,6 +422,10 @@ struct Theme {
     ui_color: style::Color,
     /// Blue on light theme
     interactive_color: style::Color,
+    /// False on light theme
+    ///
+    /// Used for CSS media selectors
+    is_dark: bool,
 }
 struct ToadSettings {
     images_enabled: bool,
@@ -439,6 +464,7 @@ struct GlobalDrawContext<'a> {
     /// Known sizes of images
     cached_image_sizes: HashMap<Url, (u16, u16)>,
     base_url: &'a Option<Url>,
+    is_dark: bool,
 }
 #[derive(Clone, Debug)]
 enum DataType {
@@ -714,11 +740,11 @@ impl Toad {
                     }
                     "theme_dark" => {
                         self.settings.theme = &DARK_THEME;
-                        //self.uncache_all_pages();
+                        self.uncache_all_pages();
                     }
                     "theme_light" => {
                         self.settings.theme = &LIGHT_THEME;
-                        //self.uncache_all_pages();
+                        self.uncache_all_pages();
                     }
                     _ => return false,
                 }
@@ -1339,6 +1365,7 @@ impl Toad {
                 forms: Vec::new(),
                 cached_image_sizes,
                 base_url: &page.url,
+                is_dark: self.settings.theme.is_dark,
             };
             let mut draw_data = DrawData {
                 parent_width: ActualMeasurement::Pixels(screen_width * EM),

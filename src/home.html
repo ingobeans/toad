@@ -7,10 +7,6 @@
 
 <body>
     <style>
-        body {
-            background-color: rgb(236, 235, 238);
-        }
-
         h1 {
             text-align: center;
         }
@@ -18,8 +14,31 @@
         .highlighted {
             color: rgb(63, 122, 0);
         }
+
+        #main {
+            width: 600px;
+        }
+
+        body {
+            background-color: rgb(236, 235, 238);
+        }
+
+        #main {
+            background-color: rgb(255, 255, 255);
+        }
+
+        @media (prefers-color-scheme: dark) {
+
+            body {
+                background-color: rgb(22, 22, 22);
+            }
+
+            #main {
+                background-color: rgb(55, 55, 55);
+            }
+        }
     </style>
-    <div style="width: 600px; background-color: rgb(255, 255, 255); ">
+    <div id="main">
         <img src="toad://toad.png" style="height: 4lh; display: block;">
         <br />
         <p>the web browser of your <span class="highlighted">dreams</span></p><br>

@@ -590,11 +590,6 @@ impl Toad {
                 continue;
             };
             if !self.fetched_assets.contains_key(&url) {
-                if let DataType::Image = ty
-                    && !self.settings.images_enabled
-                {
-                    continue;
-                }
                 let handle = tokio::spawn(get_data(url.clone(), ty, self.client.clone()));
                 self.fetches.push((page.indentifier, url, handle));
             }
@@ -699,9 +694,11 @@ impl Toad {
                 match last {
                     "disable_images" => {
                         self.settings.images_enabled = false;
+                        self.uncache_all_pages();
                     }
                     "enable_images" => {
                         self.settings.images_enabled = true;
+                        self.uncache_all_pages();
                     }
                     _ => return false,
                 }
@@ -788,6 +785,13 @@ impl Toad {
             refresh_style(page, &self.fetched_assets);
             page.cached_draw = None;
             self.prev_buffer = None;
+        }
+    }
+    fn uncache_all_pages(&mut self) {
+        for tab in self.tabs.tabs.iter_mut() {
+            for page in tab.future.iter_mut().chain(tab.history.iter_mut()) {
+                page.cached_draw = None;
+            }
         }
     }
     async fn run(&mut self) -> io::Result<()> {
@@ -1266,6 +1270,9 @@ impl Toad {
         buffer.draw_str(screen_width as u16 - 4, 1, "[≡]", &DEFAULT_DRAW_CTX, None);
     }
     fn generate_cached_image_sizes(&self) -> HashMap<Url, (u16, u16)> {
+        if !self.settings.images_enabled {
+            return HashMap::new();
+        }
         let mut map = HashMap::new();
         for (url, v) in self.fetched_assets.iter() {
             if let DataEntry::Image(img) = v {

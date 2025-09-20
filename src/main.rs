@@ -1264,6 +1264,14 @@ impl Toad {
             let page = tab.page();
             let mut text = page.get_title().trim().to_string();
             let w = text.width();
+            let width = if index == self.tab_index {
+                current_tab_width - 3
+            } else {
+                if max_invidivual_tab_width <= 3 {
+                    continue;
+                }
+                w.min(max_invidivual_tab_width - 3)
+            };
             if index == self.tab_index {
                 if w > current_tab_width - 3 {
                     text = text[..current_tab_width - 3].to_string();
@@ -1276,12 +1284,17 @@ impl Toad {
                     text = text[..max_invidivual_tab_width - 3].to_string();
                 }
             }
-            let w = w as u16;
             if index == self.tab_index {
-                buffer.draw_rect(x, 0, w + 2, 1, self.settings.theme.background_color);
+                buffer.draw_rect(
+                    x,
+                    0,
+                    width as u16 + 2,
+                    1,
+                    self.settings.theme.background_color,
+                );
             }
             buffer.draw_str(x, 0, &format!("[{text}]"), &DEFAULT_DRAW_CTX, None);
-            x += w + 3;
+            x += width as u16 + 3;
         }
         buffer.draw_rect(
             4 * 3,

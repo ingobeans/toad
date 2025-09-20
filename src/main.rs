@@ -1306,8 +1306,9 @@ impl Toad {
         if let Some(Some(url)) = self.tabs.get(self.tab_index).map(|f| &f.url) {
             let mut text = url.to_string().trim().to_string();
             let w = text.width();
-            if w > screen_width {
-                text = text[..screen_width].to_string();
+            let max_width = screen_width - 4 * 3 * 2;
+            if w > max_width {
+                text = text[..max_width].to_string();
             }
             buffer.draw_str(4 * 3, 1, &text, &DEFAULT_DRAW_CTX, None);
         }

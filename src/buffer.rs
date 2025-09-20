@@ -10,7 +10,7 @@ use crossterm::{
 use image::{DynamicImage, GenericImageView};
 use unicode_width::UnicodeWidthChar;
 
-use crate::{ElementDrawContext, NonInheritedField, consts::*};
+use crate::{ElementDrawContext, NonInheritedField, Theme, consts::*};
 
 #[derive(Clone, Copy)]
 struct Cell {
@@ -61,22 +61,20 @@ impl Cell {
         last.background_color = self.background_color;
         Ok(())
     }
-}
-impl Default for Cell {
-    fn default() -> Self {
+    fn new(theme: &'static Theme) -> Self {
         Self {
             char: ' ',
-            foreground_color: BLACK_COLOR,
-            background_color: WHITE_COLOR,
+            foreground_color: theme.text_color,
+            background_color: theme.background_color,
             bold: false,
             italics: false,
         }
     }
 }
 
-fn apply_draw_ctx_to_cell(draw_ctx: &ElementDrawContext, cell: &mut Cell) {
+fn apply_draw_ctx_to_cell(draw_ctx: &ElementDrawContext, cell: &mut Cell, theme: &'static Theme) {
     // always apply foreground color
-    cell.foreground_color = draw_ctx.foreground_color.unwrap_or(BLACK_COLOR);
+    cell.foreground_color = draw_ctx.foreground_color.unwrap_or(theme.text_color);
     // background color doesnt have to be applied, and will use whatever was there previously
     if let NonInheritedField::Specified(background_color) = draw_ctx.background_color {
         cell.background_color = background_color;
@@ -100,21 +98,21 @@ pub struct Buffer {
     pub interactables: Vec<Option<usize>>,
     width: usize,
     height: usize,
+    theme: &'static Theme,
 }
 impl Buffer {
-    pub fn empty(width: u16, height: u16) -> Self {
+    pub fn empty(width: u16, height: u16, theme: &'static Theme) -> Self {
         Self {
-            data: vec![Cell::default(); width as usize * height as usize],
+            data: vec![Cell::new(theme); width as usize * height as usize],
             interactables: vec![None; width as usize * height as usize],
             width: width as _,
             height: height as _,
+            theme,
         }
     }
     pub fn clear_color(&mut self, color: Color) {
-        let cell = Cell {
-            background_color: color,
-            ..Default::default()
-        };
+        let mut cell = Cell::new(self.theme);
+        cell.background_color = color;
         self.data = vec![cell; self.width * self.height]
     }
     pub fn render<T: Write>(
@@ -124,10 +122,8 @@ impl Buffer {
         start_x: usize,
         start_y: usize,
     ) -> io::Result<()> {
-        let mut last = Cell {
-            background_color: Color::Reset,
-            ..Default::default()
-        };
+        let mut last = Cell::new(self.theme);
+        last.background_color = Color::Reset;
         let mut data = self.data.iter().enumerate();
         let mut prev_data = prev.map(|f| f.data.iter());
 
@@ -171,10 +167,9 @@ impl Buffer {
         Ok(())
     }
     pub fn set_pixel(&mut self, x: u16, y: u16, color: Color) {
-        self.data[x as usize + y as usize * self.width] = Cell {
-            background_color: color,
-            ..Default::default()
-        };
+        let mut cell = Cell::new(self.theme);
+        cell.background_color = color;
+        self.data[x as usize + y as usize * self.width] = cell;
     }
     pub fn get_interactable(&self, x: usize, y: usize) -> Option<usize> {
         if y >= self.height || x >= self.width {
@@ -196,8 +191,12 @@ impl Buffer {
         interactable: usize,
     ) {
         let mut text_chars = text.chars();
-        let background_color = if !highlighted { GREY_COLOR } else { BLUE_COLOR };
-        let border_color = BLACK_COLOR;
+        let background_color = if !highlighted {
+            self.theme.ui_color
+        } else {
+            self.theme.interactive_color
+        };
+        let border_color = self.theme.text_color;
         let mut skip = false;
         for column in 0..width {
             if skip {
@@ -240,7 +239,7 @@ impl Buffer {
                 char,
                 background_color,
                 foreground_color: border_color,
-                ..Default::default()
+                ..Cell::new(self.theme)
             };
             self.data[index] = cell;
             self.interactables[index] = Some(interactable);
@@ -284,7 +283,7 @@ impl Buffer {
                 char: '▀',
                 background_color: bottom_color,
                 foreground_color: top_color,
-                ..Default::default()
+                ..Cell::new(self.theme)
             };
             self.data[index] = cell;
         }
@@ -329,14 +328,14 @@ impl Buffer {
             let cell = self.data.get_mut(i).unwrap();
             self.interactables[i] = interactable;
             cell.char = char;
-            apply_draw_ctx_to_cell(draw_ctx, cell);
+            apply_draw_ctx_to_cell(draw_ctx, cell, self.theme);
 
             // if double width char, make next char empty
             if width > 1 {
                 let i = i + 1;
                 let cell = self.data.get_mut(i).unwrap();
                 cell.char = ' ';
-                apply_draw_ctx_to_cell(draw_ctx, cell);
+                apply_draw_ctx_to_cell(draw_ctx, cell, self.theme);
                 self.interactables[i] = interactable;
             }
             x += width;
@@ -346,15 +345,12 @@ impl Buffer {
 
 #[cfg(test)]
 mod tests {
-    use crate::{
-        DEFAULT_DRAW_CTX,
-        buffer::Buffer,
-        consts::{BLUE_COLOR, WHITE_COLOR},
-    };
+    use crate::{DEFAULT_DRAW_CTX, buffer::Buffer, consts::LIGHT_THEME};
 
     #[test]
     fn test_write_str() {
-        let mut buf = Buffer::empty(10, 2);
+        let theme = &LIGHT_THEME;
+        let mut buf = Buffer::empty(10, 2, theme);
         let text = "hello";
         buf.draw_str(0, 0, text, &DEFAULT_DRAW_CTX, None);
         for (index, char) in text.chars().enumerate() {
@@ -363,7 +359,8 @@ mod tests {
     }
     #[test]
     fn test_wide_chars() {
-        let mut buf = Buffer::empty(10, 2);
+        let theme = &LIGHT_THEME;
+        let mut buf = Buffer::empty(10, 2, theme);
         buf.draw_str(0, 0, "aaaaaaaa", &DEFAULT_DRAW_CTX, None);
         assert_eq!(buf.data[1].char, 'a');
         let text = "🍌";
@@ -372,9 +369,10 @@ mod tests {
     }
     #[test]
     fn test_rect() {
-        let mut buf = Buffer::empty(10, 2);
-        buf.draw_rect(1, 0, 5, 1, BLUE_COLOR);
-        assert_eq!(buf.data[0].background_color, WHITE_COLOR);
-        assert_eq!(buf.data[1].background_color, BLUE_COLOR);
+        let theme = &LIGHT_THEME;
+        let mut buf = Buffer::empty(10, 2, theme);
+        buf.draw_rect(1, 0, 5, 1, theme.interactive_color);
+        assert_eq!(buf.data[0].background_color, theme.background_color);
+        assert_eq!(buf.data[1].background_color, theme.interactive_color);
     }
 }

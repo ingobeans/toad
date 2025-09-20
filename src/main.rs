@@ -392,13 +392,25 @@ impl Debug for DrawCall {
     }
 }
 
+struct Theme {
+    /// White on light theme
+    background_color: style::Color,
+    /// Black on light theme
+    text_color: style::Color,
+    /// Grey on light theme
+    ui_color: style::Color,
+    /// Blue on light theme
+    interactive_color: style::Color,
+}
 struct ToadSettings {
     images_enabled: bool,
+    theme: &'static Theme,
 }
 impl Default for ToadSettings {
     fn default() -> Self {
         Self {
             images_enabled: true,
+            theme: &LIGHT_THEME,
         }
     }
 }
@@ -699,6 +711,14 @@ impl Toad {
                     "enable_images" => {
                         self.settings.images_enabled = true;
                         self.uncache_all_pages();
+                    }
+                    "theme_dark" => {
+                        self.settings.theme = &DARK_THEME;
+                        //self.uncache_all_pages();
+                    }
+                    "theme_light" => {
+                        self.settings.theme = &LIGHT_THEME;
+                        //self.uncache_all_pages();
                     }
                     _ => return false,
                 }
@@ -1218,7 +1238,7 @@ impl Toad {
         } else {
             other_space / (self.tabs.len() - 1)
         };
-        buffer.draw_rect(0, 0, screen_width as _, 3, GREY_COLOR);
+        buffer.draw_rect(0, 0, screen_width as _, 3, self.settings.theme.ui_color);
         let mut x = 0;
         for (index, tab) in self.tabs.iter().enumerate() {
             let page = tab.page();
@@ -1238,12 +1258,18 @@ impl Toad {
             }
             let w = w as u16;
             if index == self.tab_index {
-                buffer.draw_rect(x, 0, w + 2, 1, WHITE_COLOR);
+                buffer.draw_rect(x, 0, w + 2, 1, self.settings.theme.background_color);
             }
             buffer.draw_str(x, 0, &format!("[{text}]"), &DEFAULT_DRAW_CTX, None);
             x += w + 3;
         }
-        buffer.draw_rect(4 * 3, 1, screen_width as u16 - 4 * 3 * 2, 1, WHITE_COLOR);
+        buffer.draw_rect(
+            4 * 3,
+            1,
+            screen_width as u16 - 4 * 3 * 2,
+            1,
+            self.settings.theme.background_color,
+        );
         if let Some(Some(url)) = self.tabs.get(self.tab_index).map(|f| &f.url) {
             let mut text = url.to_string().trim().to_string();
             let w = text.width();
@@ -1255,15 +1281,21 @@ impl Toad {
 
         if self.last_mouse_y == 1 {
             if self.last_mouse_x <= 2 {
-                buffer.draw_rect(0, 1, 3, 1, WHITE_COLOR);
+                buffer.draw_rect(0, 1, 3, 1, self.settings.theme.background_color);
             } else if self.last_mouse_x <= 5 {
-                buffer.draw_rect(3, 1, 3, 1, WHITE_COLOR);
+                buffer.draw_rect(3, 1, 3, 1, self.settings.theme.background_color);
             } else if self.last_mouse_x > 6 && self.last_mouse_x <= 9 {
-                buffer.draw_rect(7, 1, 3, 1, WHITE_COLOR);
+                buffer.draw_rect(7, 1, 3, 1, self.settings.theme.background_color);
             } else if self.last_mouse_x > screen_width as u16 - 5
                 && self.last_mouse_x <= screen_width as u16 - 2
             {
-                buffer.draw_rect(screen_width as u16 - 4, 1, 3, 1, WHITE_COLOR);
+                buffer.draw_rect(
+                    screen_width as u16 - 4,
+                    1,
+                    3,
+                    1,
+                    self.settings.theme.background_color,
+                );
             }
         }
         buffer.draw_str(0, 1, "[←][→] [↻] ", &DEFAULT_DRAW_CTX, None);
@@ -1340,7 +1372,7 @@ impl Toad {
         };
 
         page.hovered_interactable = None;
-        let mut buffer = Buffer::empty(screen_width, screen_height);
+        let mut buffer = Buffer::empty(screen_width, screen_height, self.settings.theme);
 
         while let Some(call) = draws.calls.pop() {
             match call {
@@ -1502,7 +1534,7 @@ impl Toad {
                         && tab_amt == interactable
                     {
                         page.hovered_interactable = Some(draws.interactables[interactable].clone());
-                        ctx.background_color = Specified(BLUE_COLOR);
+                        ctx.background_color = Specified(self.settings.theme.interactive_color);
                     }
                     let x = x / EM;
                     let y = y / LH;
@@ -1533,7 +1565,11 @@ impl Toad {
                 .min(1.0)
                 * page_height as f32)
                 .min(page_height as f32 - 1.0);
-            buffer.set_pixel(screen_width - 1, scroll_amt as u16 + 3, BLACK_COLOR);
+            buffer.set_pixel(
+                screen_width - 1,
+                scroll_amt as u16 + 3,
+                self.settings.theme.text_color,
+            );
         }
         page.page_height = Some(draws.content_height);
 

@@ -17,12 +17,14 @@ use tokio::task::JoinHandle;
 use unicode_width::UnicodeWidthStr;
 
 use buffer::*;
+use config::*;
 use consts::*;
 use element::*;
 use parsing::*;
 use utils::*;
 
 mod buffer;
+mod config;
 mod consts;
 mod css;
 mod element;
@@ -413,33 +415,6 @@ impl Debug for DrawCall {
     }
 }
 
-struct Theme {
-    /// White on light theme
-    background_color: style::Color,
-    /// Black on light theme
-    text_color: style::Color,
-    /// Grey on light theme
-    ui_color: style::Color,
-    /// Blue on light theme
-    interactive_color: style::Color,
-    /// False on light theme
-    ///
-    /// Used for CSS media selectors
-    is_dark: bool,
-}
-struct ToadSettings {
-    images_enabled: bool,
-    theme: &'static Theme,
-}
-impl Default for ToadSettings {
-    fn default() -> Self {
-        Self {
-            images_enabled: true,
-            theme: &LIGHT_THEME,
-        }
-    }
-}
-
 #[derive(Clone, Default)]
 struct Form {
     action: String,
@@ -606,6 +581,7 @@ impl Toad {
             .build()?;
         Ok(Self {
             client,
+            settings: load_settings(),
             ..Default::default()
         })
     }
@@ -732,22 +708,20 @@ impl Toad {
                 match last {
                     "disable_images" => {
                         self.settings.images_enabled = false;
-                        self.uncache_all_pages();
                     }
                     "enable_images" => {
                         self.settings.images_enabled = true;
-                        self.uncache_all_pages();
-                    }
-                    "theme_dark" => {
-                        self.settings.theme = &DARK_THEME;
-                        self.uncache_all_pages();
                     }
                     "theme_light" => {
-                        self.settings.theme = &LIGHT_THEME;
-                        self.uncache_all_pages();
+                        self.settings.theme = &THEMES[0];
+                    }
+                    "theme_dark" => {
+                        self.settings.theme = &THEMES[1];
                     }
                     _ => return false,
                 }
+                self.uncache_all_pages();
+                write_settings(&self.settings);
             }
 
             return true;

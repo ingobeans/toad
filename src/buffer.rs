@@ -345,11 +345,11 @@ impl Buffer {
 
 #[cfg(test)]
 mod tests {
-    use crate::{DEFAULT_DRAW_CTX, buffer::Buffer, consts::LIGHT_THEME};
+    use crate::{DEFAULT_DRAW_CTX, buffer::Buffer, config::THEMES};
 
     #[test]
     fn test_write_str() {
-        let theme = &LIGHT_THEME;
+        let theme = &THEMES[0];
         let mut buf = Buffer::empty(10, 2, theme);
         let text = "hello";
         buf.draw_str(0, 0, text, &DEFAULT_DRAW_CTX, None);
@@ -359,7 +359,7 @@ mod tests {
     }
     #[test]
     fn test_wide_chars() {
-        let theme = &LIGHT_THEME;
+        let theme = &THEMES[0];
         let mut buf = Buffer::empty(10, 2, theme);
         buf.draw_str(0, 0, "aaaaaaaa", &DEFAULT_DRAW_CTX, None);
         assert_eq!(buf.data[1].char, 'a');
@@ -369,7 +369,7 @@ mod tests {
     }
     #[test]
     fn test_rect() {
-        let theme = &LIGHT_THEME;
+        let theme = &THEMES[0];
         let mut buf = Buffer::empty(10, 2, theme);
         buf.draw_rect(1, 0, 5, 1, theme.interactive_color);
         assert_eq!(buf.data[0].background_color, theme.background_color);

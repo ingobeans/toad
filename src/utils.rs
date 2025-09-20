@@ -273,9 +273,8 @@ impl InputBox {
             }
             KeyCode::Backspace => {
                 if self.cursor_pos > 0 {
-                    if autocompletion.is_some() {
-                        self.rejected_autocompletion = true;
-                    } else {
+                    self.rejected_autocompletion = true;
+                    if autocompletion.is_none() {
                         self.cursor_pos -= 1;
                         remove_char(&mut self.text, self.cursor_pos);
 
@@ -297,9 +296,8 @@ impl InputBox {
                 }
             }
             KeyCode::Delete => {
-                if autocompletion.is_some() {
-                    self.rejected_autocompletion = true;
-                } else {
+                self.rejected_autocompletion = true;
+                if autocompletion.is_none() {
                     remove_char(&mut self.text, self.cursor_pos);
 
                     // make ctrl+delete delete until special character

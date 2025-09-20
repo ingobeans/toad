@@ -559,6 +559,7 @@ type FetchFuture = JoinHandle<Option<DataEntry>>;
 struct Toad {
     tabs: TabManager,
     tab_index: usize,
+    history: Vec<String>,
     client: Client,
     fetched_assets: HashMap<Url, DataEntry>,
     fetches: Vec<(usize, Url, FetchFuture)>,
@@ -597,6 +598,9 @@ impl Toad {
         }
 
         refresh_style(page, &self.fetched_assets);
+        if let Some(url) = &url {
+            self.history.push(url.to_string());
+        }
         page.indentifier = self.current_page_id;
         self.current_page_id += 1;
         for (ty, source) in page.debug_info.fetch_queue.drain(..) {
@@ -632,6 +636,7 @@ impl Toad {
             String::from("https://duckduckgo.com"),
             String::from("toad://"),
         ];
+        vec.append(&mut self.history.clone());
         vec.sort_by_key(String::len);
         vec
     }

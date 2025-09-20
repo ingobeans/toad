@@ -377,9 +377,9 @@ pub static ELEMENT_TYPES: &[ElementType] = &[
             width: Specified(Measurement::FitContentWidth),
             height: Specified(Measurement::FitContentHeight),
             foreground_color: Some(style::Color::Rgb {
-                r: 0,
-                g: 39,
-                b: 142,
+                r: 35,
+                g: 82,
+                b: 212,
             }),
             ..DEFAULT_DRAW_CTX
         },

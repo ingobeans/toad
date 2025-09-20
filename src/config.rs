@@ -109,9 +109,9 @@ pub static THEMES: &[Theme] = &[
         },
         ui_color: style::Color::Rgb { r: 0, g: 0, b: 0 },
         interactive_color: style::Color::Rgb {
-            r: 15,
-            g: 54,
-            b: 189,
+            r: 192,
+            g: 212,
+            b: 255,
         },
         is_dark: true,
     },

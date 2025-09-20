@@ -631,11 +631,7 @@ impl Toad {
         self.tabs.insert(self.tab_index, page);
     }
     fn get_url_bar_autocompletions(&self) -> Vec<String> {
-        let mut vec = vec![
-            String::from("https://"),
-            String::from("https://duckduckgo.com"),
-            String::from("toad://"),
-        ];
+        let mut vec = vec![String::from("https://"), String::from("toad://")];
         vec.append(&mut self.history.clone());
         vec.sort_by_key(String::len);
         vec

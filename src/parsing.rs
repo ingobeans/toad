@@ -71,7 +71,7 @@ fn parse_unicode(text: &str) -> String {
         .to_string();
     HEX_ENCODING_RE
         .replace_all(&a, |caps: &Captures| {
-            let text: &str = &caps[0][2..caps[0].len() - 1];
+            let text: &str = &caps[0][3..caps[0].len() - 1];
             if let Ok(parsed) = u32::from_str_radix(text, 16)
                 && let Some(char) = char::from_u32(parsed)
             {
@@ -93,6 +93,7 @@ pub fn parse_special(text: &str) -> String {
         .replace("&amp;", "&")
         .replace("&lt;", "<")
         .replace("&gt;", ">")
+        .replace("&nbsp;", "")
         .replace("&quot;", "\"");
     parse_unicode(&new)
 }

@@ -12,7 +12,8 @@ Most pages will probably not look good in TOAD, or even load, so here's a list o
 - [DuckDuckGo](https://html.duckduckgo.com/html/) (searching works but the homescreen is kind of jank)
 - [Wikipedia](https://en.wikipedia.org/wiki/%22Hello,_World!%22_program) (not the homepage)
 
-<img width="1192" height="601" alt="image" src="https://github.com/user-attachments/assets/46570d33-2d73-46bf-93d4-c2f3d280adbd" />
+<img height="265" alt="image" src="https://github.com/user-attachments/assets/46570d33-2d73-46bf-93d4-c2f3d280adbd" />
+<img height="265" alt="image" src="https://github.com/user-attachments/assets/bc3b8000-1d30-4437-b428-4f64357783d2" />
 
 
 

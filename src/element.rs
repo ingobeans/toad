@@ -415,7 +415,7 @@ pub fn fit_text_in_width(
     for char in text.chars() {
         if char == '\n' {
             x = blocked_lines
-                .get(&((parts.len() as u16 - 1) * LH + line_y_offset))
+                .get(&(parts.len() as u16 - 1 + line_y_offset / LH))
                 .cloned()
                 .unwrap_or_default()
                 / EM;
@@ -429,7 +429,7 @@ pub fn fit_text_in_width(
             && x >= parent_width / EM
         {
             x = blocked_lines
-                .get(&((parts.len() as u16 - 1) * LH + line_y_offset))
+                .get(&(parts.len() as u16 - 1 + line_y_offset / LH))
                 .cloned()
                 .unwrap_or_default()
                 / EM;
@@ -529,6 +529,13 @@ pub struct DrawData<'a> {
     pub parent_interactable: Option<usize>,
     pub parent_form: Option<usize>,
     pub ancestors_target_info: Vec<ElementTargetInfo>,
+    /// Its hard to explain what this is, but basically,
+    /// when an inline element with a height larger than 1 is drawn,
+    /// the other sibling elements need to know
+    /// that the new "start of the line" for following lines has been moved,
+    /// to the X(+width) of this element.
+    ///
+    /// This hashmap tracks the new line starts (in pixel space) of Y coordinates (in row space, not pixels).
     pub blocked_lines: HashMap<u16, u16>,
     pub last_item_height: u16,
     /// Condition set to true if the previous element drawn with this context was both `display: inline`,
@@ -740,7 +747,7 @@ impl Element {
                     if lines.peek().is_some() {
                         draw_data.x = draw_data
                             .blocked_lines
-                            .get(&draw_data.y)
+                            .get(&(draw_data.y / LH))
                             .cloned()
                             .unwrap_or_default();
                         draw_data.y += LH;
@@ -828,7 +835,7 @@ impl Element {
                 } else {
                     (width_pixels, height_pixels) = *source_size;
                 }
-                for i in 0..height_pixels.saturating_sub(LH) {
+                for i in 0..(height_pixels / LH).saturating_sub(1) {
                     let prev = draw_data
                         .blocked_lines
                         .get(&(i + draw_data.y))
@@ -836,7 +843,7 @@ impl Element {
                         .unwrap_or_default();
                     draw_data
                         .blocked_lines
-                        .insert(i + draw_data.y, prev.max(width_pixels + draw_data.x));
+                        .insert(i + draw_data.y / LH, prev.max(width_pixels + draw_data.x));
                 }
 
                 draw_data.draw_calls.push(DrawCall::Image(
@@ -1073,7 +1080,7 @@ impl Element {
         } else {
             draw_data.last_item_height = height;
 
-            for i in 0..height.saturating_sub(LH) {
+            for i in 0..(height / LH).saturating_sub(1) {
                 let prev = draw_data
                     .blocked_lines
                     .get(&(i + draw_data.y))
@@ -1081,7 +1088,7 @@ impl Element {
                     .unwrap_or_default();
                 draw_data
                     .blocked_lines
-                    .insert(i + draw_data.y, prev.max(draw_data.x));
+                    .insert(i + draw_data.y / LH, prev.max(draw_data.x));
             }
         }
         draw_data.last_was_inline_and_sized = !is_display_block && width > 0;

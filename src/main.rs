@@ -671,7 +671,9 @@ impl Toad {
                 let Some(cached) = &mut tab.cached_draw else {
                     return Ok(());
                 };
-                let (x, y) = pos.unwrap();
+                let Some((x, y)) = pos else {
+                    return Ok(());
+                };
                 self.current_input_box = Some(InputBox::new(
                     x + 1,
                     y + 1,

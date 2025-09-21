@@ -406,13 +406,15 @@ pub fn fit_text_in_width(
     text: &str,
     parent_width: ActualMeasurement,
     starting_x: u16,
+    origin_x: u16,
 ) -> Vec<String> {
     let mut parts = vec![String::new()];
     let mut x = starting_x / EM;
+    let origin_x = origin_x / EM;
     let parent_width = parent_width.get_pixels();
     for char in text.chars() {
         if char == '\n' {
-            x = 0;
+            x = origin_x;
             parts.push(String::new());
             continue;
         } else {
@@ -422,7 +424,7 @@ pub fn fit_text_in_width(
         if let Some(parent_width) = parent_width
             && x >= parent_width / EM
         {
-            x = 0;
+            x = origin_x;
             parts.push(String::new());
         }
     }
@@ -699,9 +701,16 @@ impl Element {
                 {
                     return Ok(());
                 }
-                let mut lines = fit_text_in_width(&text, draw_data.parent_width, draw_data.x)
-                    .into_iter()
-                    .peekable();
+                let start = if draw_data.last_item_height > 0 {
+                    draw_data.x
+                } else {
+                    0
+                };
+
+                let mut lines =
+                    fit_text_in_width(&text, draw_data.parent_width, draw_data.x, start)
+                        .into_iter()
+                        .peekable();
                 let mut any_text = false;
 
                 while let Some(line) = lines.next() {
@@ -720,7 +729,7 @@ impl Element {
                     draw_data.x += len * EM;
                     draw_data.content_width = draw_data.content_width.max(draw_data.x);
                     if lines.peek().is_some() {
-                        draw_data.x = 0;
+                        draw_data.x = start;
                         draw_data.y += LH;
                     }
                 }

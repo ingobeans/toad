@@ -95,6 +95,7 @@ pub fn parse_special(text: &str) -> String {
         .replace("&gt;", ">")
         .replace("&nbsp;", "")
         .replace("&VeryThinSpace;", " ")
+        .replace("&ThinSpace;", " ")
         .replace("&ThickSpace;", " ")
         .replace("&quot;", "\"");
     parse_unicode(&new)

@@ -998,6 +998,7 @@ impl Element {
             ));
             child_data.x += width;
         }
+        let old_draw_data = draw_data.clone();
         for child in self.children.iter() {
             child.draw(style, global_ctx, &mut child_data)?;
             draw_data.content_width = draw_data
@@ -1009,6 +1010,15 @@ impl Element {
             draw_data.found_element_y = draw_data
                 .found_element_y
                 .or(child_data.found_element_y.map(|f| f + draw_data.y));
+        }
+        // if element is li, and a list item marker was added, but the child draw data was empty,
+        // remove the marker too
+        if self.ty.name == "li"
+            && parent_draw_ctx.text_prefix.is_some()
+            && child_data.draw_calls.len() == 1
+        {
+            child_data = DrawData::default();
+            *draw_data = old_draw_data;
         }
         for draw_call in child_data.draw_calls.iter_mut() {
             match draw_call {

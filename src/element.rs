@@ -406,15 +406,19 @@ pub fn fit_text_in_width(
     text: &str,
     parent_width: ActualMeasurement,
     starting_x: u16,
-    origin_x: u16,
+    blocked_lines: &HashMap<u16, u16>,
+    line_y_offset: u16,
 ) -> Vec<String> {
     let mut parts = vec![String::new()];
     let mut x = starting_x / EM;
-    let origin_x = origin_x / EM;
     let parent_width = parent_width.get_pixels();
     for char in text.chars() {
         if char == '\n' {
-            x = origin_x;
+            x = blocked_lines
+                .get(&((parts.len() as u16 - 1) * LH + line_y_offset))
+                .cloned()
+                .unwrap_or_default()
+                / EM;
             parts.push(String::new());
             continue;
         } else {
@@ -424,7 +428,11 @@ pub fn fit_text_in_width(
         if let Some(parent_width) = parent_width
             && x >= parent_width / EM
         {
-            x = origin_x;
+            x = blocked_lines
+                .get(&((parts.len() as u16 - 1) * LH + line_y_offset))
+                .cloned()
+                .unwrap_or_default()
+                / EM;
             parts.push(String::new());
         }
     }
@@ -521,6 +529,7 @@ pub struct DrawData<'a> {
     pub parent_interactable: Option<usize>,
     pub parent_form: Option<usize>,
     pub ancestors_target_info: Vec<ElementTargetInfo>,
+    pub blocked_lines: HashMap<u16, u16>,
     pub last_item_height: u16,
     /// Condition set to true if the previous element drawn with this context was both `display: inline`,
     /// and had a non-zero width. Used to tell whether a leading whitespace should be allowed for text.
@@ -701,16 +710,16 @@ impl Element {
                 {
                     return Ok(());
                 }
-                let start = if draw_data.last_item_height > 0 {
-                    draw_data.x
-                } else {
-                    0
-                };
 
-                let mut lines =
-                    fit_text_in_width(&text, draw_data.parent_width, draw_data.x, start)
-                        .into_iter()
-                        .peekable();
+                let mut lines = fit_text_in_width(
+                    &text,
+                    draw_data.parent_width,
+                    draw_data.x,
+                    &draw_data.blocked_lines,
+                    draw_data.y,
+                )
+                .into_iter()
+                .peekable();
                 let mut any_text = false;
 
                 while let Some(line) = lines.next() {
@@ -729,7 +738,11 @@ impl Element {
                     draw_data.x += len * EM;
                     draw_data.content_width = draw_data.content_width.max(draw_data.x);
                     if lines.peek().is_some() {
-                        draw_data.x = start;
+                        draw_data.x = draw_data
+                            .blocked_lines
+                            .get(&draw_data.y)
+                            .cloned()
+                            .unwrap_or_default();
                         draw_data.y += LH;
                     }
                 }
@@ -814,6 +827,16 @@ impl Element {
                         (height as f32 * source_size.0 as f32 / source_size.1 as f32) as u16;
                 } else {
                     (width_pixels, height_pixels) = *source_size;
+                }
+                for i in 0..height_pixels.saturating_sub(LH) {
+                    let prev = draw_data
+                        .blocked_lines
+                        .get(&(i + draw_data.y))
+                        .cloned()
+                        .unwrap_or_default();
+                    draw_data
+                        .blocked_lines
+                        .insert(i + draw_data.y, prev.max(width_pixels + draw_data.x));
                 }
 
                 draw_data.draw_calls.push(DrawCall::Image(
@@ -1049,6 +1072,17 @@ impl Element {
             draw_data.x = 0;
         } else {
             draw_data.last_item_height = height;
+
+            for i in 0..height.saturating_sub(LH) {
+                let prev = draw_data
+                    .blocked_lines
+                    .get(&(i + draw_data.y))
+                    .cloned()
+                    .unwrap_or_default();
+                draw_data
+                    .blocked_lines
+                    .insert(i + draw_data.y, prev.max(draw_data.x));
+            }
         }
         draw_data.last_was_inline_and_sized = !is_display_block && width > 0;
 

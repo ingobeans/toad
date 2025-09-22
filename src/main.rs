@@ -757,6 +757,16 @@ impl Toad {
             let mut page = (**page).clone();
             page.url = Some(url);
             page
+        } else if url == Url::parse("toad://history").unwrap() {
+            let mut items_text = String::new();
+            for item in self.history.iter().rev() {
+                items_text += &format!("<a href=\"{0}\">{0}</a><br>", sanitize(item));
+            }
+            let mut page =
+                parse_html(&include_str!("history.html").replace("{{ITEMS}}", &items_text))
+                    .unwrap();
+            page.url = Some(url);
+            page
         } else {
             let handle = tokio::spawn(get_page(self.client.clone(), url.clone()));
             self.fetches
@@ -1143,6 +1153,13 @@ impl Toad {
                                 running = false;
                             } else if char == 'r' && control {
                                 self.refresh_page(self.tab_index);
+                                self.draw(&stdout, screen_size)?;
+                            } else if char == 'h' && control {
+                                self.open_page_new_tab(
+                                    parse_html(include_str!("blank.html")).unwrap(),
+                                )
+                                .await;
+                                self.set_url(Url::parse("toad://history").unwrap()).await;
                                 self.draw(&stdout, screen_size)?;
                             } else if char == 'w' && control {
                                 if self.tab_index < self.tabs.len() {

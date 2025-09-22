@@ -679,7 +679,13 @@ impl Element {
         }
 
         // construct this element's active style
-        let style = self.get_active_style(global_ctx, parent_draw_ctx, &draw_data_ancestor_info);
+        let style = if global_ctx.use_css {
+            self.get_active_style(global_ctx, parent_draw_ctx, &draw_data_ancestor_info)
+        } else {
+            let mut style = self.ty.draw_ctx;
+            style.merge_inherit(&parent_draw_ctx);
+            style
+        };
 
         if self.ty.stops_parsing || matches!(style.display, Specified(Display::None)) {
             return Ok(());

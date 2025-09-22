@@ -440,6 +440,7 @@ struct GlobalDrawContext<'a> {
     cached_image_sizes: HashMap<Url, (u16, u16)>,
     base_url: &'a Option<Url>,
     is_dark: bool,
+    use_css: bool,
 }
 #[derive(Clone, Debug)]
 enum DataType {
@@ -724,6 +725,12 @@ impl Toad {
                     }
                     "enable_images" => {
                         self.settings.images_enabled = true;
+                    }
+                    "disable_css" => {
+                        self.settings.css_enabled = false;
+                    }
+                    "enable_css" => {
+                        self.settings.css_enabled = true;
                     }
                     "theme_light" => {
                         self.settings.theme = &THEMES[0];
@@ -1376,6 +1383,7 @@ impl Toad {
                 cached_image_sizes,
                 base_url: &page.url,
                 is_dark: self.settings.theme.is_dark,
+                use_css: self.settings.css_enabled,
             };
             let mut draw_data = DrawData {
                 parent_width: ActualMeasurement::Pixels(screen_width * EM),

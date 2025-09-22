@@ -599,7 +599,10 @@ impl Toad {
 
         refresh_style(page, &self.fetched_assets);
         if let Some(url) = &url {
-            self.settings.history.push(url.to_string());
+            self.settings.history.push_back(url.to_string());
+            if self.settings.history.len() >= 100 {
+                self.settings.history.pop_front();
+            }
             write_settings(&self.settings);
         }
         page.indentifier = self.current_page_id;
@@ -633,7 +636,7 @@ impl Toad {
     }
     fn get_url_bar_autocompletions(&self) -> Vec<String> {
         let mut vec = vec![String::from("https://"), String::from("toad://")];
-        vec.append(&mut self.settings.history.clone());
+        vec.append(&mut self.settings.history.clone().into());
         vec.sort_by_key(String::len);
         vec
     }

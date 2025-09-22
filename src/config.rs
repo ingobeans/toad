@@ -1,3 +1,5 @@
+use std::collections::VecDeque;
+
 use crossterm::style;
 
 use crate::consts::*;
@@ -46,7 +48,7 @@ pub struct ToadSettings {
     pub images_enabled: bool,
     pub css_enabled: bool,
     pub theme: &'static Theme,
-    pub history: Vec<String>,
+    pub history: VecDeque<String>,
 }
 impl ToadSettings {
     pub fn serialize(&self) -> Vec<u8> {
@@ -73,11 +75,11 @@ impl ToadSettings {
         let css_enabled = data[1] == 1;
         let theme_index = data[2] as usize;
         let history_data = data[3..].to_vec();
-        let mut history = Vec::new();
+        let mut history = VecDeque::new();
         let mut last = String::new();
         for char in history_data.iter() {
             if *char == 0 {
-                history.push(last);
+                history.push_back(last);
                 last = String::new();
             } else {
                 let char = *char as char;
@@ -98,7 +100,7 @@ impl Default for ToadSettings {
             images_enabled: true,
             css_enabled: true,
             theme: &THEMES[0],
-            history: Vec::new(),
+            history: VecDeque::new(),
         }
     }
 }

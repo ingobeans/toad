@@ -560,7 +560,6 @@ type FetchFuture = JoinHandle<Option<DataEntry>>;
 struct Toad {
     tabs: TabManager,
     tab_index: usize,
-    history: Vec<String>,
     client: Client,
     fetched_assets: HashMap<Url, DataEntry>,
     fetches: Vec<(usize, Url, FetchFuture)>,
@@ -600,7 +599,8 @@ impl Toad {
 
         refresh_style(page, &self.fetched_assets);
         if let Some(url) = &url {
-            self.history.push(url.to_string());
+            self.settings.history.push(url.to_string());
+            write_settings(&self.settings);
         }
         page.indentifier = self.current_page_id;
         self.current_page_id += 1;
@@ -633,7 +633,7 @@ impl Toad {
     }
     fn get_url_bar_autocompletions(&self) -> Vec<String> {
         let mut vec = vec![String::from("https://"), String::from("toad://")];
-        vec.append(&mut self.history.clone());
+        vec.append(&mut self.settings.history.clone());
         vec.sort_by_key(String::len);
         vec
     }
@@ -759,7 +759,7 @@ impl Toad {
             page
         } else if url == Url::parse("toad://history").unwrap() {
             let mut items_text = String::new();
-            for item in self.history.iter().rev() {
+            for item in self.settings.history.iter().rev() {
                 items_text += &format!("<a href=\"{0}\">{0}</a><br>", sanitize(item));
             }
             let mut page =

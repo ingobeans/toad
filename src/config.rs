@@ -46,6 +46,7 @@ pub struct ToadSettings {
     pub images_enabled: bool,
     pub css_enabled: bool,
     pub theme: &'static Theme,
+    pub history: Vec<String>,
 }
 impl ToadSettings {
     pub fn serialize(&self) -> Vec<u8> {
@@ -58,19 +59,36 @@ impl ToadSettings {
                 .position(|f| std::ptr::eq(f, self.theme))
                 .unwrap() as u8,
         );
+        for item in self.history.iter() {
+            data.append(&mut item.as_bytes().to_vec());
+            data.push(0);
+        }
         data
     }
     pub fn deserialize(data: &[u8]) -> Self {
-        if data.len() != 3 {
+        if data.len() < 3 {
             return ToadSettings::default();
         }
         let images_enabled = data[0] == 1;
         let css_enabled = data[1] == 1;
         let theme_index = data[2] as usize;
+        let history_data = data[3..].to_vec();
+        let mut history = Vec::new();
+        let mut last = String::new();
+        for char in history_data.iter() {
+            if *char == 0 {
+                history.push(last);
+                last = String::new();
+            } else {
+                let char = *char as char;
+                last.push(char);
+            }
+        }
         Self {
             images_enabled,
             css_enabled,
             theme: &THEMES[theme_index],
+            history,
         }
     }
 }
@@ -80,6 +98,7 @@ impl Default for ToadSettings {
             images_enabled: true,
             css_enabled: true,
             theme: &THEMES[0],
+            history: Vec::new(),
         }
     }
 }

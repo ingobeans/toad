@@ -909,15 +909,10 @@ impl Toad {
         }
     }
     fn uncache_all_pages(&mut self) {
-        let mut pages = Vec::new();
-        for tab in self.tabs.tabs.iter() {
-            for page in tab.future.iter().chain(tab.history.iter()) {
-                let page = page.clone();
-                pages.push(page);
+        for tab in self.tabs.tabs.iter_mut() {
+            for page in tab.future.iter_mut().chain(tab.history.iter_mut()) {
+                page.cached_draw = None;
             }
-        }
-        for page in pages.into_iter() {
-            self.draw_page(page);
         }
     }
     async fn run(&mut self) -> io::Result<()> {
@@ -1485,10 +1480,21 @@ impl Toad {
             return Ok(());
         };
         let (screen_width, screen_height) = screen_size;
+        let mut send_to_draw_queue = None;
 
         let mut draws = if let Some(calls) = &page.cached_draw {
             calls.clone()
         } else {
+            // if this page hasnt been drawn,
+            // and theres no thread in progress to draw it
+            // start draw!
+            if self
+                .draw_threads
+                .get(&page.indentifier)
+                .is_none_or(|f| f.is_none())
+            {
+                send_to_draw_queue = Some(page.clone());
+            }
             CachedDraw {
                 calls: Vec::new(),
                 unknown_sized_elements: Vec::new(),
@@ -1706,7 +1712,12 @@ impl Toad {
         buffer.render(&mut stdout, self.prev_buffer.as_ref(), 0, 0)?;
         self.prev_buffer = Some(buffer);
 
-        queue!(stdout, style::ResetColor)
+        queue!(stdout, style::ResetColor)?;
+
+        if let Some(page) = send_to_draw_queue {
+            self.draw_page(page);
+        }
+        Ok(())
     }
 }
 

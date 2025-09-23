@@ -663,7 +663,7 @@ impl Element {
         parent_draw_ctx: ElementDrawContext,
         global_ctx: &mut GlobalDrawContext<'a>,
         draw_data: &mut DrawData,
-    ) -> io::Result<()> {
+    ) {
         let mut draw_data_ancestor_info = draw_data.ancestors_target_info.clone();
         draw_data_ancestor_info.push(ElementTargetInfo {
             type_name: self.ty.name,
@@ -688,7 +688,7 @@ impl Element {
         };
 
         if self.ty.stops_parsing || matches!(style.display, Specified(Display::None)) {
-            return Ok(());
+            return;
         }
 
         let is_body = self.ty.name == "body";
@@ -721,7 +721,7 @@ impl Element {
                 if let Some(pw) = draw_data.parent_width.get_pixels()
                     && pw < EM
                 {
-                    return Ok(());
+                    return;
                 }
 
                 let mut lines = fit_text_in_width(
@@ -763,7 +763,7 @@ impl Element {
 
                 draw_data.last_was_inline_and_sized = !is_display_block && any_text;
             }
-            return Ok(());
+            return;
         } else if self.ty.name == "a"
             && let Some(link) = self.get_attribute("href")
         {
@@ -880,7 +880,7 @@ impl Element {
                 draw_data.y += height_pixels;
                 draw_data.x = 0;
             }
-            return Ok(());
+            return;
         } else if (self.ty.name == "input" || self.ty.name == "button")
             && let Some(ty) = self.get_attribute("type")
         {
@@ -901,7 +901,7 @@ impl Element {
                     // for any text box type field
                     "text" | "search" | "email" | "number" | "password" => {
                         let Some(name) = self.get_attribute("name") else {
-                            return Ok(());
+                            return;
                         };
                         self_interactable = Some(global_ctx.interactables.len());
                         global_ctx.interactables.push(Interactable::InputText(
@@ -958,7 +958,7 @@ impl Element {
                     }
                 }
             }
-            return Ok(());
+            return;
         }
 
         draw_data.content_width = draw_data.content_width.max(actual_width.get_pixels_lossy());
@@ -1006,7 +1006,7 @@ impl Element {
         }
         let old_draw_data = draw_data.clone();
         for child in self.children.iter() {
-            child.draw(style, global_ctx, &mut child_data)?;
+            child.draw(style, global_ctx, &mut child_data);
             draw_data.content_width = draw_data
                 .content_width
                 .max(draw_data.x + child_data.content_width);
@@ -1110,8 +1110,6 @@ impl Element {
         draw_data.last_was_inline_and_sized = !is_display_block && width > 0;
 
         draw_data.draw_calls.append(&mut child_data.draw_calls);
-
-        Ok(())
     }
 }
 

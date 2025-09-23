@@ -44,6 +44,7 @@ pub struct Theme {
     /// Used for CSS media selectors
     pub is_dark: bool,
 }
+#[derive(Clone)]
 pub struct ToadSettings {
     pub images_enabled: bool,
     pub css_enabled: bool,

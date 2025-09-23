@@ -451,7 +451,62 @@ enum DataEntry {
     PlainText(String),
     Image(image::DynamicImage),
     Webpage(Box<Webpage>),
+    PageDrawCalls(CachedDraw, Option<u16>),
 }
+
+fn draw_page(
+    page: Webpage,
+    cached_image_sizes: HashMap<Url, (u16, u16)>,
+    screen_size: (u16, u16),
+    settings: ToadSettings,
+) -> Option<DataEntry> {
+    let mut scroll_to = None;
+    let (screen_width, screen_height) = screen_size;
+    let scroll_to_element = if !page.has_been_scrolled {
+        page.url.as_ref().map(|f| f.fragment()).unwrap_or(None)
+    } else {
+        None
+    };
+    let mut global_ctx = GlobalDrawContext {
+        unknown_sized_elements: Vec::new(),
+        global_style: &page.global_style,
+        interactables: Vec::new(),
+        forms: Vec::new(),
+        cached_image_sizes,
+        base_url: &page.url,
+        is_dark: settings.theme.is_dark,
+        use_css: settings.css_enabled,
+    };
+    let mut draw_data = DrawData {
+        parent_width: ActualMeasurement::Pixels(screen_width * EM),
+        parent_height: ActualMeasurement::Pixels(screen_height * LH),
+        y: 3 * LH,
+        find_element: scroll_to_element,
+        ..Default::default()
+    };
+    page.root
+        .as_ref()
+        .unwrap()
+        .draw(DEFAULT_DRAW_CTX, &mut global_ctx, &mut draw_data);
+
+    if let Some(y) = draw_data.found_element_y {
+        scroll_to = Some(y / LH - 3);
+    }
+
+    // sort draw calls such that rect calls are drawn first
+    draw_data.draw_calls.sort_by_key(|a| a.order());
+    // reverse because vecs are LIFO
+    draw_data.draw_calls.reverse();
+    let draws = CachedDraw {
+        calls: draw_data.draw_calls,
+        unknown_sized_elements: global_ctx.unknown_sized_elements,
+        content_height: draw_data.content_height,
+        interactables: global_ctx.interactables,
+        forms: global_ctx.forms,
+    };
+    Some(DataEntry::PageDrawCalls(draws, scroll_to))
+}
+
 // allow dead code because i sometimes want to use the info_log function for debugging
 #[allow(dead_code)]
 #[derive(Default, Clone)]
@@ -616,6 +671,18 @@ impl Toad {
                 self.fetches.push((page.indentifier, url, handle));
             }
         }
+        self.draw_page(page.clone());
+    }
+    fn draw_page(&mut self, page: Webpage) {
+        let cached_image_size = self.generate_cached_image_sizes();
+        let settings = self.settings.clone();
+        let size = terminal::size().unwrap();
+        let id = page.indentifier;
+        let handle = tokio::task::spawn_blocking(move || {
+            draw_page(page.clone(), cached_image_size, size, settings)
+        });
+        self.fetches
+            .push((id, Url::parse("toad://parsing").unwrap(), handle));
     }
     async fn open_page(&mut self, mut page: Webpage, tab_index: usize) {
         if self.tabs.is_empty() {
@@ -836,14 +903,16 @@ impl Toad {
         if let Some(page) = self.tabs.get_mut(tab_index) {
             page.scroll_y = 0;
             refresh_style(page, &self.fetched_assets);
-            page.cached_draw = None;
             self.prev_buffer = None;
+            let page = page.clone();
+            self.draw_page(page);
         }
     }
     fn uncache_all_pages(&mut self) {
         for tab in self.tabs.tabs.iter_mut() {
             for page in tab.future.iter_mut().chain(tab.history.iter_mut()) {
-                page.cached_draw = None;
+                //let page = page.clone();
+                //self.draw_page(page);
             }
         }
     }
@@ -1199,6 +1268,7 @@ impl Toad {
             let mut death_queue = Vec::new();
 
             let mut unhandled_pages = Vec::new();
+            let mut undrawn_pages = Vec::new();
 
             for (index, (page_id, url, handle)) in self.fetches.iter_mut().enumerate() {
                 if handle.is_finished() {
@@ -1217,6 +1287,13 @@ impl Toad {
                     any_changed = true;
                     if let DataEntry::Webpage(webpage) = data {
                         unhandled_pages.push((*page_id, webpage));
+                    } else if let DataEntry::PageDrawCalls(draw, scroll_to) = data {
+                        if let Some(page) = self.tabs.find_identifier_mut(*page_id) {
+                            if let Some(scroll_to) = scroll_to {
+                                page.scroll_y = scroll_to;
+                            }
+                            page.cached_draw = Some(draw);
+                        }
                     } else {
                         let is_stylesheet = matches!(data, DataEntry::PlainText(_));
                         self.fetched_assets.insert(url.clone(), data);
@@ -1226,7 +1303,7 @@ impl Toad {
                             if is_stylesheet {
                                 refresh_style(page, &self.fetched_assets);
                             }
-                            page.cached_draw = None;
+                            undrawn_pages.push(page.clone());
                         }
                     }
                 }
@@ -1237,6 +1314,10 @@ impl Toad {
                 index += 1;
                 !death_queue.contains(&old)
             });
+
+            for page in undrawn_pages.into_iter() {
+                self.draw_page(page);
+            }
 
             for (id, mut page) in unhandled_pages.into_iter() {
                 self.handle_new_page(&mut page).await;
@@ -1390,50 +1471,13 @@ impl Toad {
         let mut draws = if let Some(calls) = &page.cached_draw {
             calls.clone()
         } else {
-            let scroll_to_element = if !page.has_been_scrolled {
-                page.url.as_ref().map(|f| f.fragment()).unwrap_or(None)
-            } else {
-                None
-            };
-            let mut global_ctx = GlobalDrawContext {
+            CachedDraw {
+                calls: Vec::new(),
                 unknown_sized_elements: Vec::new(),
-                global_style: &page.global_style,
                 interactables: Vec::new(),
+                content_height: 0,
                 forms: Vec::new(),
-                cached_image_sizes,
-                base_url: &page.url,
-                is_dark: self.settings.theme.is_dark,
-                use_css: self.settings.css_enabled,
-            };
-            let mut draw_data = DrawData {
-                parent_width: ActualMeasurement::Pixels(screen_width * EM),
-                parent_height: ActualMeasurement::Pixels(screen_height * LH),
-                y: 3 * LH,
-                find_element: scroll_to_element,
-                ..Default::default()
-            };
-            page.root
-                .as_ref()
-                .unwrap()
-                .draw(DEFAULT_DRAW_CTX, &mut global_ctx, &mut draw_data)?;
-
-            if let Some(y) = draw_data.found_element_y {
-                page.scroll_y = y / LH - 3;
             }
-
-            // sort draw calls such that rect calls are drawn first
-            draw_data.draw_calls.sort_by_key(|a| a.order());
-            // reverse because vecs are LIFO
-            draw_data.draw_calls.reverse();
-            let draws = CachedDraw {
-                calls: draw_data.draw_calls,
-                unknown_sized_elements: global_ctx.unknown_sized_elements,
-                content_height: draw_data.content_height,
-                interactables: global_ctx.interactables,
-                forms: global_ctx.forms,
-            };
-            page.cached_draw = Some(draws.clone());
-            draws
         };
 
         page.hovered_interactable = None;

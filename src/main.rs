@@ -451,7 +451,6 @@ enum DataEntry {
     PlainText(String),
     Image(image::DynamicImage),
     Webpage(Box<Webpage>),
-    PageDrawCalls(CachedDraw, Option<u16>),
 }
 
 fn draw_page(
@@ -459,7 +458,7 @@ fn draw_page(
     cached_image_sizes: HashMap<Url, (u16, u16)>,
     screen_size: (u16, u16),
     settings: ToadSettings,
-) -> Option<DataEntry> {
+) -> (CachedDraw, Option<u16>) {
     let mut scroll_to = None;
     let (screen_width, screen_height) = screen_size;
     let scroll_to_element = if !page.has_been_scrolled {
@@ -504,7 +503,7 @@ fn draw_page(
         interactables: global_ctx.interactables,
         forms: global_ctx.forms,
     };
-    Some(DataEntry::PageDrawCalls(draws, scroll_to))
+    (draws, scroll_to)
 }
 
 // allow dead code because i sometimes want to use the info_log function for debugging
@@ -610,6 +609,7 @@ async fn get_page_with_form(client: Client, url: Url, form: Form) -> Option<Data
 }
 
 type FetchFuture = JoinHandle<Option<DataEntry>>;
+type PageDrawFuture = JoinHandle<(CachedDraw, Option<u16>)>;
 
 #[derive(Default)]
 struct Toad {
@@ -618,6 +618,7 @@ struct Toad {
     client: Client,
     fetched_assets: HashMap<Url, DataEntry>,
     fetches: Vec<(usize, Url, FetchFuture)>,
+    draw_threads: HashMap<usize, Option<PageDrawFuture>>,
     current_page_id: usize,
     cached_resized_images: Vec<(Url, u16, u16, image::DynamicImage)>,
     prev_buffer: Option<Buffer>,
@@ -681,8 +682,7 @@ impl Toad {
         let handle = tokio::task::spawn_blocking(move || {
             draw_page(page.clone(), cached_image_size, size, settings)
         });
-        self.fetches
-            .push((id, Url::parse("toad://parsing").unwrap(), handle));
+        self.draw_threads.insert(id, Some(handle));
     }
     async fn open_page(&mut self, mut page: Webpage, tab_index: usize) {
         if self.tabs.is_empty() {
@@ -1287,13 +1287,6 @@ impl Toad {
                     any_changed = true;
                     if let DataEntry::Webpage(webpage) = data {
                         unhandled_pages.push((*page_id, webpage));
-                    } else if let DataEntry::PageDrawCalls(draw, scroll_to) = data {
-                        if let Some(page) = self.tabs.find_identifier_mut(*page_id) {
-                            if let Some(scroll_to) = scroll_to {
-                                page.scroll_y = scroll_to;
-                            }
-                            page.cached_draw = Some(draw);
-                        }
                     } else {
                         let is_stylesheet = matches!(data, DataEntry::PlainText(_));
                         self.fetched_assets.insert(url.clone(), data);
@@ -1308,6 +1301,28 @@ impl Toad {
                     }
                 }
             }
+
+            for (page_id, handle) in self.draw_threads.iter_mut() {
+                let Some(h) = handle else {
+                    continue;
+                };
+                if h.is_finished() {
+                    let handle = handle.take().unwrap();
+                    let Ok((draw, scroll_to)) = tokio::join!(handle).0 else {
+                        continue;
+                    };
+                    if let Some(page) = self.tabs.find_identifier_mut(*page_id) {
+                        if let Some(scroll) = scroll_to
+                            && !page.has_been_scrolled
+                        {
+                            page.scroll_y = scroll;
+                        }
+                        page.cached_draw = Some(draw);
+                        any_changed = true;
+                    }
+                }
+            }
+
             let mut index = 0;
             self.fetches.retain(|_| {
                 let old = index;

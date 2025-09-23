@@ -679,9 +679,8 @@ impl Toad {
         let settings = self.settings.clone();
         let size = terminal::size().unwrap();
         let id = page.indentifier;
-        let handle = tokio::task::spawn_blocking(move || {
-            draw_page(page.clone(), cached_image_size, size, settings)
-        });
+        let handle =
+            tokio::task::spawn_blocking(move || draw_page(page, cached_image_size, size, settings));
         self.draw_threads.insert(id, Some(handle));
     }
     async fn open_page(&mut self, mut page: Webpage, tab_index: usize) {

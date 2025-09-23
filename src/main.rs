@@ -909,11 +909,15 @@ impl Toad {
         }
     }
     fn uncache_all_pages(&mut self) {
-        for tab in self.tabs.tabs.iter_mut() {
-            for page in tab.future.iter_mut().chain(tab.history.iter_mut()) {
-                //let page = page.clone();
-                //self.draw_page(page);
+        let mut pages = Vec::new();
+        for tab in self.tabs.tabs.iter() {
+            for page in tab.future.iter().chain(tab.history.iter()) {
+                let page = page.clone();
+                pages.push(page);
             }
+        }
+        for page in pages.into_iter() {
+            self.draw_page(page);
         }
     }
     async fn run(&mut self) -> io::Result<()> {

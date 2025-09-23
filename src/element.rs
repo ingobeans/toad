@@ -1,4 +1,4 @@
-use std::{collections::HashMap, fmt::Debug, io};
+use std::{collections::HashMap, fmt::Debug};
 
 use crate::{
     ActualMeasurement, DEFAULT_DRAW_CTX, Display, DrawCall, ElementDrawContext, ElementTargetInfo,

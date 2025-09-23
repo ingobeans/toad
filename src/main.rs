@@ -786,8 +786,8 @@ impl Toad {
     }
     fn handle_toad_settings(&mut self, url: &Url) -> bool {
         if url.scheme() == "toad" {
-            if let Some(segments) = url.path_segments()
-                && let Some(last) = segments.last()
+            if let Some(mut segments) = url.path_segments()
+                && let Some(last) = segments.next_back()
             {
                 match last {
                     "disable_images" => {
@@ -1477,7 +1477,6 @@ impl Toad {
         mut stdout: &Stdout,
         screen_size: (u16, u16),
     ) -> io::Result<()> {
-        let cached_image_sizes = self.generate_cached_image_sizes();
         let Some(page) = self.tabs.get_mut(self.tab_index) else {
             return Ok(());
         };

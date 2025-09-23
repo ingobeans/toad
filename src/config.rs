@@ -22,11 +22,12 @@ pub fn load_settings() -> ToadSettings {
     } else {
         return ToadSettings::default();
     };
-    if path.exists() {
-        if let Ok(data) = std::fs::read(path) {
-            return ToadSettings::deserialize(&data);
-        }
+    if path.exists()
+        && let Ok(data) = std::fs::read(path)
+    {
+        return ToadSettings::deserialize(&data);
     }
+
     ToadSettings::default()
 }
 

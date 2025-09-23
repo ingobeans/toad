@@ -11,6 +11,7 @@ use std::{
     fmt::Debug,
     io::{self, Stdout, Write, stdout},
     str::FromStr,
+    sync::Arc,
     time::Duration,
 };
 use tokio::task::JoinHandle;
@@ -45,7 +46,7 @@ struct Webpage {
     indentifier: usize,
     title: Option<String>,
     url: Option<Url>,
-    root: Option<Element>,
+    root: Option<Arc<Element>>,
     global_style: Vec<(StyleTarget, ElementDrawContext)>,
     scroll_y: u16,
     /// Which interactable element we're tabbed to
@@ -107,6 +108,15 @@ impl TabManager {
                 page.indentifier == identifier
             })
             .map(|f| f.page_mut())
+    }
+    fn find_identifier(&self, identifier: usize) -> Option<&Webpage> {
+        self.tabs
+            .iter()
+            .find(|f| {
+                let page = f.page();
+                page.indentifier == identifier
+            })
+            .map(|f| f.page())
     }
     fn len(&self) -> usize {
         self.tabs.len()
@@ -454,25 +464,23 @@ enum DataEntry {
 }
 
 fn draw_page(
-    page: Webpage,
+    root: Arc<Element>,
     cached_image_sizes: HashMap<Url, (u16, u16)>,
     screen_size: (u16, u16),
     settings: ToadSettings,
+    url: Option<Url>,
+    global_style: Vec<(StyleTarget, ElementDrawContext)>,
 ) -> (CachedDraw, Option<u16>) {
     let mut scroll_to = None;
     let (screen_width, screen_height) = screen_size;
-    let scroll_to_element = if !page.has_been_scrolled {
-        page.url.as_ref().map(|f| f.fragment()).unwrap_or(None)
-    } else {
-        None
-    };
+    let scroll_to_element = url.as_ref().map(|f| f.fragment()).unwrap_or(None);
     let mut global_ctx = GlobalDrawContext {
         unknown_sized_elements: Vec::new(),
-        global_style: &page.global_style,
+        global_style: &global_style,
         interactables: Vec::new(),
         forms: Vec::new(),
         cached_image_sizes,
-        base_url: &page.url,
+        base_url: &url,
         is_dark: settings.theme.is_dark,
         use_css: settings.css_enabled,
     };
@@ -483,10 +491,7 @@ fn draw_page(
         find_element: scroll_to_element,
         ..Default::default()
     };
-    page.root
-        .as_ref()
-        .unwrap()
-        .draw(DEFAULT_DRAW_CTX, &mut global_ctx, &mut draw_data);
+    root.draw(DEFAULT_DRAW_CTX, &mut global_ctx, &mut draw_data);
 
     if let Some(y) = draw_data.found_element_y {
         scroll_to = Some(y / LH - 3);
@@ -672,16 +677,26 @@ impl Toad {
                 self.fetches.push((page.indentifier, url, handle));
             }
         }
-        self.draw_page(page.clone());
+        self.draw_threads
+            .insert(page.indentifier, self.draw_page(page));
     }
-    fn draw_page(&mut self, page: Webpage) {
+    #[must_use]
+    fn draw_page(&self, page: &Webpage) -> Option<PageDrawFuture> {
         let cached_image_size = self.generate_cached_image_sizes();
         let settings = self.settings.clone();
         let size = terminal::size().unwrap();
-        let id = page.indentifier;
-        let handle =
-            tokio::task::spawn_blocking(move || draw_page(page, cached_image_size, size, settings));
-        self.draw_threads.insert(id, Some(handle));
+
+        let url = page.url.clone();
+        let global_style = page.global_style.clone();
+        if let Some(root) = &page.root {
+            let arc = Arc::clone(root);
+            let handle = tokio::task::spawn_blocking(move || {
+                draw_page(arc, cached_image_size, size, settings, url, global_style)
+            });
+            Some(handle)
+        } else {
+            None
+        }
     }
     async fn open_page(&mut self, mut page: Webpage, tab_index: usize) {
         if self.tabs.is_empty() {
@@ -899,12 +914,13 @@ impl Toad {
         Ok(())
     }
     fn refresh_page(&mut self, tab_index: usize) {
-        if let Some(page) = self.tabs.get_mut(tab_index) {
+        if let Some(page) = self.tabs.get(tab_index) {
+            self.prev_buffer = None;
+            let draw = self.draw_page(page);
+            self.draw_threads.insert(page.indentifier, draw);
+            let page = self.tabs.get_mut(tab_index).unwrap();
             page.scroll_y = 0;
             refresh_style(page, &self.fetched_assets);
-            self.prev_buffer = None;
-            let page = page.clone();
-            self.draw_page(page);
         }
     }
     fn uncache_all_pages(&mut self) {
@@ -1294,7 +1310,7 @@ impl Toad {
                             if is_stylesheet {
                                 refresh_style(page, &self.fetched_assets);
                             }
-                            undrawn_pages.push(page.clone());
+                            undrawn_pages.push(page.indentifier);
                         }
                     }
                 }
@@ -1328,8 +1344,10 @@ impl Toad {
                 !death_queue.contains(&old)
             });
 
-            for page in undrawn_pages.into_iter() {
-                self.draw_page(page);
+            for page_id in undrawn_pages.into_iter() {
+                if let Some(page) = self.tabs.find_identifier(page_id) {
+                    self.draw_threads.insert(page_id, self.draw_page(page));
+                }
             }
 
             for (id, mut page) in unhandled_pages.into_iter() {
@@ -1479,7 +1497,7 @@ impl Toad {
             return Ok(());
         };
         let (screen_width, screen_height) = screen_size;
-        let mut send_to_draw_queue = None;
+        let mut send_to_draw_queue = false;
 
         let mut draws = if let Some(calls) = &page.cached_draw {
             calls.clone()
@@ -1492,7 +1510,7 @@ impl Toad {
                 .get(&page.indentifier)
                 .is_none_or(|f| f.is_none())
             {
-                send_to_draw_queue = Some(page.clone());
+                send_to_draw_queue = true;
             }
             CachedDraw {
                 calls: Vec::new(),
@@ -1713,8 +1731,10 @@ impl Toad {
 
         queue!(stdout, style::ResetColor)?;
 
-        if let Some(page) = send_to_draw_queue {
-            self.draw_page(page);
+        if send_to_draw_queue {
+            let page = self.tabs.get(self.tab_index).unwrap();
+            self.draw_threads
+                .insert(page.indentifier, self.draw_page(page));
         }
         Ok(())
     }

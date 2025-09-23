@@ -1,4 +1,7 @@
-use std::{collections::HashMap, sync::LazyLock};
+use std::{
+    collections::HashMap,
+    sync::{Arc, LazyLock},
+};
 
 use regex::{Captures, Regex};
 use reqwest::Url;
@@ -118,7 +121,7 @@ pub fn parse_html(text: &str) -> Option<Webpage> {
     }
     root.map(|root| Webpage {
         title,
-        root: Some(root),
+        root: Some(Arc::new(root)),
         debug_info,
         ..Default::default()
     })

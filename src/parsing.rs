@@ -235,11 +235,13 @@ fn parse(
                             value.iter().collect::<String>().trim().to_string()
                         } else {
                             let quote_type = buf.pop().unwrap();
-                            pop_until(buf, &quote_type)
+                            let r = pop_until(buf, &quote_type)
                                 .iter()
                                 .collect::<String>()
                                 .trim()
-                                .to_string()
+                                .to_string();
+                            buf.push(' ');
+                            r
                         }
                     } else {
                         continue;

@@ -157,6 +157,7 @@ fn handle_new_element(element: &Element, debug_info: &mut WebpageDebugInfo) {
     if let Some(asset) = element_to_datatype(element) {
         debug_info.fetch_queue.push(asset);
     }
+    debug_info.element_count += 1;
     if element.ty.name == "meta"
         && let Some(http_equiv) = element.get_attribute("http-equiv")
         && http_equiv == "refresh"

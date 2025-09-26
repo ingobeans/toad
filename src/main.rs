@@ -519,6 +519,7 @@ struct WebpageDebugInfo {
     unknown_elements: Vec<String>,
     fetch_queue: Vec<(DataType, String)>,
     redirect_to: Option<String>,
+    element_count: usize,
 }
 impl Debug for WebpageDebugInfo {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -528,8 +529,8 @@ impl Debug for WebpageDebugInfo {
         }
         write!(
             f,
-            "Info Log: \n\n{log}\n\nUnknown elements: {:?}\n\nRedirect to: {:?}",
-            self.unknown_elements, self.redirect_to
+            "Info Log: \n\n{log}\n\nUnknown elements: {:?}\n\nRedirect to: {:?}\n\nElement count: {}",
+            self.unknown_elements, self.redirect_to, self.element_count
         )
     }
 }
@@ -613,8 +614,12 @@ async fn get_page_with_form(client: Client, url: Url, form: Form) -> Option<Data
     Some(DataEntry::Webpage(Box::new(page)))
 }
 
+enum PageDrawFuture {
+    Handle(JoinHandle<(CachedDraw, Option<u16>)>),
+    Immediate((CachedDraw, Option<u16>)),
+}
+
 type FetchFuture = JoinHandle<Option<DataEntry>>;
-type PageDrawFuture = JoinHandle<(CachedDraw, Option<u16>)>;
 
 #[derive(Default)]
 struct Toad {
@@ -690,10 +695,22 @@ impl Toad {
         let global_style = page.global_style.clone();
         if let Some(root) = &page.root {
             let arc = Arc::clone(root);
-            let handle = tokio::task::spawn_blocking(move || {
-                draw_page(arc, cached_image_size, size, settings, url, global_style)
-            });
-            Some(handle)
+            if page.debug_info.element_count > 100 {
+                let handle = tokio::task::spawn_blocking(move || {
+                    draw_page(arc, cached_image_size, size, settings, url, global_style)
+                });
+
+                Some(PageDrawFuture::Handle(handle))
+            } else {
+                Some(PageDrawFuture::Immediate(draw_page(
+                    arc,
+                    cached_image_size,
+                    size,
+                    settings,
+                    url,
+                    global_style,
+                )))
+            }
         } else {
             None
         }
@@ -945,7 +962,7 @@ impl Toad {
                 self.prev_buffer = None;
                 self.draw(&stdout, screen_size)?;
             }
-            if event::poll(Duration::from_millis(100))? {
+            if event::poll(Duration::from_millis(10))? {
                 let event = event::read()?;
                 if !event.is_key_press() {
                     if let event::Event::Mouse(mouse_event) = event {
@@ -1320,20 +1337,34 @@ impl Toad {
                 let Some(h) = handle else {
                     continue;
                 };
-                if h.is_finished() {
-                    let handle = handle.take().unwrap();
-                    let Ok((draw, scroll_to)) = tokio::join!(handle).0 else {
-                        continue;
-                    };
-                    if let Some(page) = self.tabs.find_identifier_mut(*page_id) {
-                        if let Some(scroll) = scroll_to
-                            && !page.has_been_scrolled
-                        {
-                            page.scroll_y = scroll;
+                let result = match h {
+                    PageDrawFuture::Handle(h) => {
+                        if h.is_finished() {
+                            let PageDrawFuture::Handle(h) = handle.take().unwrap() else {
+                                panic!()
+                            };
+                            tokio::join!(h).0.ok()
+                        } else {
+                            None
                         }
-                        page.cached_draw = Some(draw);
-                        any_changed = true;
                     }
+                    PageDrawFuture::Immediate(_) => {
+                        let PageDrawFuture::Immediate(h) = handle.take().unwrap() else {
+                            panic!()
+                        };
+                        Some(h)
+                    }
+                };
+                if let Some((draw, scroll_to)) = result
+                    && let Some(page) = self.tabs.find_identifier_mut(*page_id)
+                {
+                    if let Some(scroll) = scroll_to
+                        && !page.has_been_scrolled
+                    {
+                        page.scroll_y = scroll;
+                    }
+                    page.cached_draw = Some(draw);
+                    any_changed = true;
                 }
             }
 

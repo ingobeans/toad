@@ -96,7 +96,7 @@ pub fn parse_special(text: &str) -> String {
         .replace("&amp;", "&")
         .replace("&lt;", "<")
         .replace("&gt;", ">")
-        .replace("&nbsp;", "")
+        .replace("&nbsp;", " ")
         .replace("&VeryThinSpace;", " ")
         .replace("&ThinSpace;", " ")
         .replace("&ThickSpace;", " ")

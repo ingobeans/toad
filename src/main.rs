@@ -886,10 +886,10 @@ impl Toad {
         let input_box = self.current_input_box.as_mut().unwrap();
         let was_submitted = match &input_box.state {
             InputBoxState::Submitted => true,
-            InputBoxState::Cancelled => match input_box.on_submit {
-                InputBoxSubmitTarget::SetFormTextField(_, _) => true,
-                _ => false,
-            },
+            InputBoxState::Cancelled => matches!(
+                input_box.on_submit,
+                InputBoxSubmitTarget::SetFormTextField(_, _)
+            ),
             _ => false,
         };
         if was_submitted {
@@ -920,16 +920,9 @@ impl Toad {
         } else {
             match &input_box.state {
                 InputBoxState::Cancelled => {
-                    let input_box = self.current_input_box.take().unwrap();
+                    self.current_input_box.take().unwrap();
                     queue!(stdout, cursor::Hide)?;
                     self.prev_buffer = None;
-                    if let InputBoxSubmitTarget::SetFormTextField(_, _) = input_box.on_submit {
-                        self.prev_buffer = None;
-                    }
-                    if let InputBoxSubmitTarget::OpenNewTab = input_box.on_submit {
-                        self.tabs.remove(self.tab_index);
-                        self.tab_index = self.tab_index.saturating_sub(1);
-                    }
                     self.draw(stdout, screen_size)?;
                 }
                 _ => {
@@ -1283,10 +1276,18 @@ impl Toad {
                                     self.draw(&stdout, screen_size)?;
                                 }
                             } else if char == 't' && control {
-                                self.open_page_new_tab(
-                                    parse_html(include_str!("blank.html")).unwrap(),
-                                )
-                                .await;
+                                let url = Url::parse("toad://home").unwrap();
+                                let page = if let Some(page) = self.fetched_assets.get(&url)
+                                    && let DataEntry::Webpage(page) = page
+                                {
+                                    let mut page = (**page).clone();
+                                    page.url = Some(url);
+                                    page
+                                } else {
+                                    panic!()
+                                };
+
+                                self.open_page_new_tab(page).await;
                                 self.current_input_box = Some(InputBox::new(
                                     4 * 3,
                                     1,

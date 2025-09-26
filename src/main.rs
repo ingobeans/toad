@@ -884,48 +884,57 @@ impl Toad {
         screen_size: (u16, u16),
     ) -> io::Result<()> {
         let input_box = self.current_input_box.as_mut().unwrap();
-        match &input_box.state {
-            InputBoxState::Submitted => {
-                let input_box = self.current_input_box.take().unwrap();
-                queue!(stdout, cursor::Hide)?;
-                self.prev_buffer = None;
-                match input_box.on_submit {
-                    InputBoxSubmitTarget::ChangeAddress | InputBoxSubmitTarget::OpenNewTab => {
-                        if let Ok(url) = Url::from_str(&input_box.text) {
-                            self.set_url(url).await;
-                        } else if let InputBoxSubmitTarget::OpenNewTab = input_box.on_submit {
-                            self.tabs.remove(self.tab_index);
-                            self.tab_index = self.tab_index.saturating_sub(1);
-                        }
-                        self.draw(stdout, screen_size)?;
+        let was_submitted = match &input_box.state {
+            InputBoxState::Submitted => true,
+            InputBoxState::Cancelled => match input_box.on_submit {
+                InputBoxSubmitTarget::SetFormTextField(_, _) => true,
+                _ => false,
+            },
+            _ => false,
+        };
+        if was_submitted {
+            let input_box = self.current_input_box.take().unwrap();
+            queue!(stdout, cursor::Hide)?;
+            self.prev_buffer = None;
+            match input_box.on_submit {
+                InputBoxSubmitTarget::ChangeAddress | InputBoxSubmitTarget::OpenNewTab => {
+                    if let Ok(url) = Url::from_str(&input_box.text) {
+                        self.set_url(url).await;
+                    } else if let InputBoxSubmitTarget::OpenNewTab = input_box.on_submit {
+                        self.tabs.remove(self.tab_index);
+                        self.tab_index = self.tab_index.saturating_sub(1);
                     }
-                    InputBoxSubmitTarget::SetFormTextField(index, name) => {
-                        if let Some(tab) = self.tabs.get_mut(self.tab_index)
-                            && let Some(cached) = &mut tab.cached_draw
-                        {
-                            cached.forms[index]
-                                .text_fields
-                                .insert(name.clone(), input_box.text);
-                        };
-                        self.draw(stdout, screen_size)?;
-                    }
+                    self.draw(stdout, screen_size)?;
+                }
+                InputBoxSubmitTarget::SetFormTextField(index, name) => {
+                    if let Some(tab) = self.tabs.get_mut(self.tab_index)
+                        && let Some(cached) = &mut tab.cached_draw
+                    {
+                        cached.forms[index]
+                            .text_fields
+                            .insert(name.clone(), input_box.text);
+                    };
+                    self.draw(stdout, screen_size)?;
                 }
             }
-            InputBoxState::Cancelled => {
-                let input_box = self.current_input_box.take().unwrap();
-                queue!(stdout, cursor::Hide)?;
-                self.prev_buffer = None;
-                if let InputBoxSubmitTarget::SetFormTextField(_, _) = input_box.on_submit {
+        } else {
+            match &input_box.state {
+                InputBoxState::Cancelled => {
+                    let input_box = self.current_input_box.take().unwrap();
+                    queue!(stdout, cursor::Hide)?;
                     self.prev_buffer = None;
+                    if let InputBoxSubmitTarget::SetFormTextField(_, _) = input_box.on_submit {
+                        self.prev_buffer = None;
+                    }
+                    if let InputBoxSubmitTarget::OpenNewTab = input_box.on_submit {
+                        self.tabs.remove(self.tab_index);
+                        self.tab_index = self.tab_index.saturating_sub(1);
+                    }
+                    self.draw(stdout, screen_size)?;
                 }
-                if let InputBoxSubmitTarget::OpenNewTab = input_box.on_submit {
-                    self.tabs.remove(self.tab_index);
-                    self.tab_index = self.tab_index.saturating_sub(1);
+                _ => {
+                    self.draw(stdout, screen_size)?;
                 }
-                self.draw(stdout, screen_size)?;
-            }
-            _ => {
-                self.draw(stdout, screen_size)?;
             }
         }
         Ok(())

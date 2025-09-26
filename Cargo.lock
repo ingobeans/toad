@@ -402,15 +402,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "hamis"
-version = "0.1.15"
-source = "git+https://github.com/ingobeans/hamis.git#4e9a65e24ed556779bd706ecc4af808d6fabd6b6"
-dependencies = [
- "crossterm",
- "image",
-]
-
-[[package]]
 name = "hashbrown"
 version = "0.15.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1375,7 +1366,6 @@ dependencies = [
  "base64",
  "box_drawing",
  "crossterm",
- "hamis",
  "image",
  "regex",
  "reqwest",

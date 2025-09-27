@@ -898,7 +898,7 @@ impl Toad {
             self.prev_buffer = None;
             match input_box.on_submit {
                 InputBoxSubmitTarget::ChangeAddress | InputBoxSubmitTarget::OpenNewTab => {
-                    if let Ok(url) = Url::from_str(&input_box.text) {
+                    if let Some(url) = parse_url_user_input(&input_box.text) {
                         self.set_url(url).await;
                     } else if let InputBoxSubmitTarget::OpenNewTab = input_box.on_submit {
                         self.tabs.remove(self.tab_index);

@@ -8,6 +8,7 @@ use crossterm::{
     event::{self, KeyCode, KeyModifiers},
     execute, queue, style, terminal,
 };
+use reqwest::Url;
 use unicode_width::UnicodeWidthStr;
 
 pub fn pop_until<T: PartialEq>(a: &mut Vec<T>, b: &T) -> Vec<T> {
@@ -119,6 +120,19 @@ fn remove_char(string: &mut String, index: usize) {
         }
     }
     *string = new;
+}
+
+pub fn parse_url_user_input(text: &str) -> Option<Url> {
+    let r = Url::parse(text);
+    if let Ok(r) = r {
+        return Some(r);
+    }
+    let b = Url::parse(&format!("https://{text}"));
+
+    if let Ok(b) = b {
+        return Some(b);
+    }
+    None
 }
 
 pub enum InputBoxSubmitTarget {

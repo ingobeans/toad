@@ -10,7 +10,6 @@ use std::{
     collections::HashMap,
     fmt::Debug,
     io::{self, Stdout, Write, stdout},
-    str::FromStr,
     sync::Arc,
     time::Duration,
 };

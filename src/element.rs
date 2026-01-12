@@ -1028,19 +1028,19 @@ impl Element {
         }
         for draw_call in child_data.draw_calls.iter_mut() {
             match draw_call {
-                DrawCall::Rect(x, y, _, _, _) => {
+                DrawCall::Rect(x, y, ..) => {
                     *x += draw_data.x;
                     *y += draw_data.y;
                 }
-                DrawCall::Image(x, y, _, _, _) => {
+                DrawCall::Image(x, y, ..) => {
                     *x += draw_data.x;
                     *y += draw_data.y;
                 }
-                DrawCall::Text(x, y, _, _, _, _) => {
+                DrawCall::Text(x, y, ..) => {
                     *x += draw_data.x;
                     *y += draw_data.y;
                 }
-                DrawCall::DrawInput(x, y, _, _, _, _) => {
+                DrawCall::DrawInput(x, y, ..) => {
                     *x += draw_data.x;
                     *y += draw_data.y;
                 }
